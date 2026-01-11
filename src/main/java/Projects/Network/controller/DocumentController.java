@@ -808,18 +808,47 @@ public class DocumentController {
  * */
 
     @GetMapping("/{documentId}/download")
+    public Mono<ResponseEntity<byte[]>> downloadDocument(
+            @PathVariable UUID documentId,
+            @RequestPart("front") String side) {
+        
+        return documentService.getDocumentById(documentId)
+                .flatMap(doc -> {
+                    String path;
+                    String suffix;
+                    
+                    if ("back".equalsIgnoreCase(side)) {
+                        if (doc.getBackMinioPath() == null || doc.getBackMinioPath().isEmpty()) {
+                            return Mono.error(new RuntimeException("Back document not found"));
+                        }
+                        path = doc.getBackMinioPath();
+                        suffix = "_back";
+                    } else {
+                        suffix = "";
+                        path = doc.getMinioPath();
+                    }
+                    
+                    return enhancedDocumentService.retrieveFileFromMinio(path)
+                            .map(bytes -> ResponseEntity.ok()
+                                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                                            ATTACHMENT_HEADER_PREFIX + addSuffixToFilename(doc.getFileName(), suffix) + ATTACHMENT_HEADER_SUFFIX)
+                                    .contentType(MediaType.parseMediaType(
+                                            doc.getFileType() != null ? doc.getFileType() : DEFAULT_CONTENT_TYPE))
+                                    .body(bytes));
+                })
+                .switchIfEmpty(Mono.just(ResponseEntity.notFound().build()))
+                .onErrorResume(e -> {
+                    if (e.getMessage().equals("Back document not found")) {
+                        return Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND).build());
+                    }
+                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
+                });
+    }
 
-
-    public Mono<ResponseEntity<byte[]>> downloadDocument(@PathVariable UUID documentId) {
- return documentService.getDocumentById(documentId)
-                 .flatMap(doc -> enhancedDocumentService.retrieveFileFromMinio(doc.getMinioPath())
-                .map(bytes -> ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                 ATTACHMENT_HEADER_PREFIX + doc.getFileName() + ATTACHMENT_HEADER_SUFFIX)
-                .contentType(MediaType.parseMediaType(
-                 doc.getFileType() != null ? doc.getFileType() : DEFAULT_CONTENT_TYPE))
-                .body(bytes)))
-                 .switchIfEmpty(Mono.just(ResponseEntity.notFound().build()))
-                .onErrorResume(e -> Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build()));
-  }
+    private String addSuffixToFilename(String filename, String suffix) {
+        if (suffix == null || suffix.isEmpty() || filename == null) return filename;
+        int dotIndex = filename.lastIndexOf('.');
+        if (dotIndex == -1) return filename + suffix;
+        return filename.substring(0, dotIndex) + suffix + filename.substring(dotIndex);
+    }
 }

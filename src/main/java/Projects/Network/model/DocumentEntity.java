@@ -1,9 +1,13 @@
 package Projects.Network.model;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
 import org.springframework.data.relational.core.mapping.Column;
+import org.springframework.http.codec.ServerSentEvent;
 
 import java.util.UUID;
 import java.time.LocalDateTime;
@@ -26,6 +30,9 @@ import java.time.LocalDateTime;
  */
 @Data
 @Table("documents")
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class DocumentEntity {
 
     /**
@@ -74,6 +81,16 @@ public class DocumentEntity {
      */
     @Column("minio_path")
     private String minioPath;
+
+    /**
+     * Backup path or alternative object key for the file in the storage system.
+     *
+     * This value references an alternative or backup location of the file
+     * in MinIO or any compatible object storage service. It can be used
+     * for redundancy, versioning, or backup purposes.
+     */
+    @Column("back_minio_path")
+    private String backMinioPath;
 
     /**
      * Identifier of the user who owns the document.

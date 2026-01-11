@@ -4,59 +4,36 @@ import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.buffer.DataBufferUtils;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.io.ByteArrayInputStream;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
 
 /**
- * MinioService
+ * MinioService - Adapted for reactive file upload
  *
- * Technical service dedicated to low-level interactions with MinIO object storage.
+ * Handles MinIO storage operations with support for:
+ * - Raw byte array upload
+ * - Reactive FilePart upload (WebFlux multipart)
  *
- * This service is responsible only for file storage operations and deliberately
- * avoids any business logic. Its goal is to isolate infrastructure-related
- * concerns from higher-level services such as DocumentService.
- *
- * All operations provided by this service are wrapped in reactive types
- * in order to integrate seamlessly with a reactive application stack.
- *
- * Author: Thomas Djotio Ndié
- * Creation date: 2026-01-02
+ * @author Thomas Djotio Ndié
+ * @version 2.0
  */
 @Service
 @RequiredArgsConstructor
 public class MinioService {
 
-    /**
-     * Core MinIO client used to communicate with the object storage server.
-     *
-     * This client is configured and instantiated in the Minio configuration
-     * class and injected here via constructor injection.
-     */
     private final MinioClient minioClient;
 
-    /**
-     * Name of the MinIO bucket where files will be stored.
-     *
-     * This value is injected from the application configuration properties.
-     */
     @Value("${minio.bucket-name}")
     private String bucketName;
 
     /**
-     * Uploads raw binary content to the configured MinIO bucket.
-     *
-     * This method wraps a blocking MinIO operation into a reactive Mono
-     * in order to integrate with the reactive programming model.
-     *
-     * The upload is performed using a ByteArrayInputStream created
-     * from the provided byte array.
-     *
-     * @param objectName the unique object name or path inside the bucket
-     * @param content the binary content of the file
-     * @param contentType the MIME type of the file (for example, application/pdf or image/png)
-     * @return a Mono that completes when the upload operation finishes
+     * Upload raw byte content to MinIO
      */
     public Mono<Void> uploadFile(String objectName, byte[] content, String contentType) {
         return Mono.fromRunnable(() -> {
@@ -65,19 +42,66 @@ public class MinioService {
                         PutObjectArgs.builder()
                                 .bucket(bucketName)
                                 .object(objectName)
-                                .stream(
-                                        new ByteArrayInputStream(content),
-                                        content.length,
-                                        -1
-                                )
+                                .stream(new ByteArrayInputStream(content), content.length, -1)
                                 .contentType(contentType)
                                 .build()
                 );
             } catch (Exception e) {
-                throw new RuntimeException(
-                        "Error during MinIO upload: " + e.getMessage()
-                );
+                throw new RuntimeException("MinIO upload error: " + e.getMessage(), e);
             }
         });
+    }
+
+    /**
+     * Upload reactive FilePart to MinIO
+     *
+     * @param filePart reactive multipart file from WebFlux
+     * @param objectPath target path in MinIO bucket
+     * @return Mono<String> URL or path of uploaded file
+     */
+    public Mono<String> uploadFile(FilePart filePart, String objectPath) {
+        return DataBufferUtils.join(filePart.content())
+                .flatMap(dataBuffer -> {
+                    try {
+                        byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                        dataBuffer.read(bytes);
+                        DataBufferUtils.release(dataBuffer);
+
+                        // Detect content type
+                        String contentType = detectContentType(filePart.filename());
+
+                        // Upload to MinIO
+                        minioClient.putObject(
+                                PutObjectArgs.builder()
+                                        .bucket(bucketName)
+                                        .object(objectPath)
+                                        .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
+                                        .contentType(contentType)
+                                        .build()
+                        );
+
+                        return Mono.just(objectPath);
+
+                    } catch (Exception e) {
+                        return Mono.error(new RuntimeException("MinIO upload failed: " + e.getMessage(), e));
+                    }
+                });
+    }
+
+    /**
+     * Detect content type from filename
+     */
+    private String detectContentType(String filename) {
+        if (filename == null) return "application/octet-stream";
+
+        String lower = filename.toLowerCase();
+        if (lower.endsWith(".pdf")) return "application/pdf";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".gif")) return "image/gif";
+        if (lower.endsWith(".bmp")) return "image/bmp";
+        if (lower.endsWith(".tiff") || lower.endsWith(".tif")) return "image/tiff";
+
+        return "application/octet-stream";
     }
 }
