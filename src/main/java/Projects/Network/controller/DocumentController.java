@@ -32,7 +32,7 @@ import java.util.UUID;
  * Core capabilities:
  *
  * 1. Document upload:
- *    Accepts multipart file uploads and stores them in MinIO object storage while
+ *    Accepts multipart file uploads and stores them in Supabase storage while
  *    maintaining metadata in PostgreSQL database. Supports various file types including
  *    images (JPEG, PNG, GIF) and PDF documents with size limits for security.
  *
@@ -59,7 +59,7 @@ import java.util.UUID;
  * - Service layer (DocumentService): Business logic, validation, orchestration
  * - Enhanced service layer (EnhancedDocumentService): External API integration, parsing
  * - Repository layer (DocumentRepository): Database operations via R2DBC
- * - Storage layer (MinIO): Object storage for actual file content
+ * - Storage layer (Supabase): Object storage for actual file content
  *
  * The separation ensures:
  * - Clear responsibility boundaries
@@ -90,7 +90,7 @@ import java.util.UUID;
  *
  * - Spring WebFlux: Reactive, non-blocking web framework
  * - Project Reactor: Mono and Flux for reactive streams
- * - MinIO: S3-compatible object storage for file content
+ * - Supabase: Object storage for file content
  * - PostgreSQL with R2DBC: Reactive database access for metadata
  * - External AI APIs: Document parsing and text extraction services
  *
@@ -200,11 +200,11 @@ public class DocumentController {
     private final EnhancedDocumentService enhancedDocumentService;
 
     /**
-     * Uploads a document file to MinIO storage and stores metadata in the database.
+     * Uploads a document file to Supabase storage and stores metadata in the database.
      *
      * This endpoint accepts multipart form data containing a file, document type classification,
      * and user identification. It orchestrates the complete upload workflow including file
-     * validation, storage in MinIO object storage, and metadata persistence in PostgreSQL.
+     * validation, storage in Supabase storage, and metadata persistence in PostgreSQL.
      *
      * Endpoint details:
      * - HTTP Method: POST (creates a new resource)
@@ -828,7 +828,7 @@ public class DocumentController {
                         path = doc.getMinioPath();
                     }
                     
-                    return enhancedDocumentService.retrieveFileFromMinio(path)
+                    return enhancedDocumentService.retrieveFileFromSupabase(path)
                             .map(bytes -> ResponseEntity.ok()
                                     .header(HttpHeaders.CONTENT_DISPOSITION,
                                             ATTACHMENT_HEADER_PREFIX + addSuffixToFilename(doc.getFileName(), suffix) + ATTACHMENT_HEADER_SUFFIX)

@@ -114,13 +114,6 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
-        <!-- MinIO client:
-             Object storage (S3 compatible) -->
-        <dependency>
-            <groupId>io.minio</groupId>
-            <artifactId>minio</artifactId>
-            <version>8.5.7</version>
-        </dependency>
 
         <!-- OpenAPI / Swagger UI for WebFlux -->
         <dependency>

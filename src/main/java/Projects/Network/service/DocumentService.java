@@ -1,8 +1,5 @@
 package Projects.Network.service;
 
-import io.minio.MinioClient;
-import io.minio.PutObjectArgs;
-import io.minio.RemoveObjectArgs;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
@@ -23,7 +20,7 @@ import java.util.UUID;
  *
  * This service handles the complete lifecycle of user documents, including:
  * - Validation of uploaded files (size and type)
- * - Storage of files in MinIO object storage
+ * - Storage of files in Supabase storage
  * - Persistence of document metadata in the database
  * - Retrieval and deletion of documents
  *
@@ -64,31 +61,23 @@ public class DocumentService {
     private final UserRepository userRepository;
 
     /**
-     * MinIO client used for object storage operations.
+     * Supabase storage service used for object storage operations.
      */
-    private final MinioClient minioClient;
-
-    /**
-     * Name of the MinIO bucket where documents are stored.
-     */
-    private final String bucketName;
+    private final SupabaseStorageService supabaseStorageService;
 
     /**
      * Constructs a new DocumentService with required dependencies.
      *
      * @param repository document repository
      * @param userRepository user repository
-     * @param minioClient MinIO client
-     * @param bucketName name of the MinIO bucket
+     * @param supabaseStorageService Supabase storage service
      */
     public DocumentService(DocumentRepository repository,
                            UserRepository userRepository,
-                           MinioClient minioClient,
-                           @Value("${minio.bucket-name}") String bucketName) {
+                           SupabaseStorageService supabaseStorageService) {
         this.repository = repository;
         this.userRepository = userRepository;
-        this.minioClient = minioClient;
-        this.bucketName = bucketName;
+        this.supabaseStorageService = supabaseStorageService;
     }
 
     /**
@@ -97,7 +86,7 @@ public class DocumentService {
      * This method performs the following steps:
      * - Verifies that the user exists
      * - Validates the uploaded file (type and size)
-     * - Stores the file in MinIO
+     * - Stores the file in Supabase
      * - Saves the document metadata in the database
      *
      * @param file uploaded file
@@ -115,7 +104,7 @@ public class DocumentService {
                 .switchIfEmpty(Mono.error(new RuntimeException("User not found with ID: " + userId)))
                 .doOnNext(user -> System.out.println("User found: " + user.getEmail()))
                 .flatMap(user -> validate(file)
-                        .flatMap(validFile -> storeInMinio(validFile, user, pieceType))
+                        .flatMap(validFile -> storeInSupabase(validFile, user, pieceType))
                         .flatMap(entity -> {
                             entity.setUserId(userId);
                             return repository.save(entity);
@@ -157,7 +146,7 @@ public class DocumentService {
     }
 
     /**
-     * Deletes a document from both the database and MinIO storage.
+     * Deletes a document from both the database and Supabase storage.
      *
      * @param documentId identifier of the document
      * @return a Mono signaling completion of the delete operation
@@ -168,23 +157,11 @@ public class DocumentService {
         return repository.findById(documentId)
                 .switchIfEmpty(Mono.error(new RuntimeException("Document not found with ID: " + documentId)))
                 .flatMap(doc -> {
-                    System.out.println("Document found, deleting from MinIO: " + doc.getMinioPath());
+                    System.out.println("Document found, deleting from Supabase: " + doc.getMinioPath());
 
-                    return Mono.fromCallable(() -> {
-                        try {
-                            minioClient.removeObject(
-                                    RemoveObjectArgs.builder()
-                                            .bucket(bucketName)
-                                            .object(doc.getMinioPath())
-                                            .build()
-                            );
-                            System.out.println("Document deleted from MinIO: " + doc.getMinioPath());
-                            return doc;
-                        } catch (Exception e) {
-                            System.err.println("Error deleting from MinIO: " + e.getMessage());
-                            throw new RuntimeException("Failed to delete from MinIO: " + e.getMessage(), e);
-                        }
-                    });
+                    return supabaseStorageService.deleteFile(doc.getMinioPath())
+                            .doOnSuccess(v -> System.out.println("Document deleted from Supabase: " + doc.getMinioPath()))
+                            .thenReturn(doc);
                 })
                 .flatMap(doc -> {
                     System.out.println("Deleting document from database...");
@@ -236,64 +213,34 @@ public class DocumentService {
     }
 
     /**
-     * Stores the uploaded file in MinIO and builds the corresponding DocumentEntity.
+     * Stores the uploaded file in Supabase and builds the corresponding DocumentEntity.
      *
      * @param file uploaded file
      * @param user owner of the document
      * @param pieceType type of the document
      * @return a Mono emitting the created DocumentEntity
      */
-    private Mono<DocumentEntity> storeInMinio(FilePart file, User user, String pieceType) {
+    private Mono<DocumentEntity> storeInSupabase(FilePart file, User user, String pieceType) {
         String originalName = file.filename();
         String extension = originalName.contains(".")
                 ? originalName.substring(originalName.lastIndexOf("."))
                 : "";
-        String customObjectName = pieceType + "_de_" + user.getLastName() + "_" + user.getFirstName() + extension;
+        String customObjectName = pieceType + "_de_" + user.getLastName() + "_" + user.getFirstName() + "_" + UUID.randomUUID().toString() + extension;
 
-        System.out.println("MinIO object name: " + customObjectName);
+        System.out.println("Supabase object name: " + customObjectName);
 
-        return file.content()
-                .map(buf -> buf.asByteBuffer())
-                .reduce(new byte[0], (acc, bb) -> {
-                    byte[] combined = new byte[acc.length + bb.remaining()];
-                    System.arraycopy(acc, 0, combined, 0, acc.length);
-                    bb.get(combined, acc.length, bb.remaining());
-                    return combined;
-                })
-                .flatMap(bytes -> {
-                    try {
-                        System.out.println("Uploading to MinIO, size: " + bytes.length);
-
-                        String contentType = file.headers().getContentType() != null
-                                ? file.headers().getContentType().toString()
-                                : "application/octet-stream";
-
-                        minioClient.putObject(
-                                PutObjectArgs.builder()
-                                        .bucket(bucketName)
-                                        .object(customObjectName)
-                                        .stream(new ByteArrayInputStream(bytes), bytes.length, -1)
-                                        .contentType(contentType)
-                                        .build()
-                        );
-
-                        System.out.println("MinIO upload successful");
-
-                        DocumentEntity entity = new DocumentEntity();
-                        entity.setFileName(customObjectName);
-                        entity.setMinioPath(customObjectName);
-                        entity.setFileSize((long) bytes.length);
-                        entity.setPieceType(pieceType);
-                        entity.setUserId(user.getUserId());
-                        entity.setFileType(contentType);
-                        entity.setStatus("UPLOADED");
-
-                        return Mono.just(entity);
-                    } catch (Exception e) {
-                        System.err.println("MinIO upload failed: " + e.getMessage());
-                        e.printStackTrace();
-                        return Mono.error(new RuntimeException("Failed to upload to MinIO: " + e.getMessage()));
-                    }
+        return supabaseStorageService.uploadFile(file, customObjectName)
+                .map(path -> {
+                    DocumentEntity entity = new DocumentEntity();
+                    entity.setFileName(customObjectName);
+                    entity.setMinioPath(path);
+                    entity.setPieceType(pieceType);
+                    entity.setUserId(user.getUserId());
+                    entity.setFileType(file.headers().getContentType() != null 
+                        ? file.headers().getContentType().toString() 
+                        : "application/octet-stream");
+                    entity.setStatus("UPLOADED");
+                    return entity;
                 });
     }
 }

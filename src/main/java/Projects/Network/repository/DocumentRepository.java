@@ -28,15 +28,9 @@ import java.util.UUID;
 public interface DocumentRepository extends R2dbcRepository<DocumentEntity, UUID> {
 
     /**
-     * Retrieves a document using its MinIO storage path.
+     * Retrieves a document using its storage path.
      *
-     * This method allows searching for a document based on the
-     * object storage reference used in MinIO.
-     *
-     * Spring Data R2DBC derives the query automatically from
-     * the method name.
-     *
-     * @param minioPath the full path or object key of the document in MinIO
+     * @param minioPath the full path or object key of the document
      * @return a Mono emitting the corresponding DocumentEntity if found
      */
     Mono<DocumentEntity> findByMinioPath(String minioPath);

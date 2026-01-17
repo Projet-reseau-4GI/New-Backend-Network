@@ -6,7 +6,7 @@ import Projects.Network.model.User;
 import Projects.Network.repository.DocumentRepository;
 import Projects.Network.repository.UserRepository;
 import Projects.Network.service.DocumentAnalysisService;
-import Projects.Network.service.MinioService;
+import Projects.Network.service.SupabaseStorageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
@@ -23,7 +23,7 @@ import java.util.UUID;
 public class DocumentAnalysisController {
 
     private final DocumentAnalysisService analysisService;
-    private final MinioService minioService;
+    private final SupabaseStorageService supabaseStorageService;
     private final DocumentRepository documentRepository;
     private final UserRepository userRepository;
 
@@ -52,13 +52,13 @@ public class DocumentAnalysisController {
                         String frontExt = getExtension(front.filename());
                         String frontPath = "documents/" + baseName + "_front" + frontExt;
                         
-                        return minioService.uploadFile(front, frontPath)
+                        return supabaseStorageService.uploadFile(front, frontPath)
                                 .flatMap(uploadedFrontPath -> {
                                     if (backFile != null) {
                                         return backFile.flatMap(back -> {
                                             String backExt = getExtension(back.filename());
                                             String backPath = "documents/" + baseName + "_back" + backExt;
-                                            return minioService.uploadFile(back, backPath)
+                                            return supabaseStorageService.uploadFile(back, backPath)
                                                     .flatMap(uploadedBackPath -> 
                                                         saveAndAnalyze(uploadedFrontPath, uploadedBackPath, cleanPieceType, user, baseName + frontExt, front)
                                                     );

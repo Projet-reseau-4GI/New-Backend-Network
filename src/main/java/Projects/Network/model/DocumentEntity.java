@@ -77,7 +77,7 @@ public class DocumentEntity {
      * Path or object key used to locate the file in the storage system.
      *
      * This value references the physical location of the file
-     * in MinIO or any compatible object storage service.
+     * in Supabase or any compatible object storage service.
      */
     @Column("minio_path")
     private String minioPath;
@@ -86,7 +86,7 @@ public class DocumentEntity {
      * Backup path or alternative object key for the file in the storage system.
      *
      * This value references an alternative or backup location of the file
-     * in MinIO or any compatible object storage service. It can be used
+     * in Supabase or any compatible object storage service. It can be used
      * for redundancy, versioning, or backup purposes.
      */
     @Column("back_minio_path")
