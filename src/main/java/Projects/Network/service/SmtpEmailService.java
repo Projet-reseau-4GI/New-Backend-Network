@@ -124,7 +124,7 @@ public class SmtpEmailService implements EmailService {
                     
                     <p>Bonjour,</p>
                     
-                    <p>Vous avez demandé la réinitialisation de votre mot de passe sur <strong>VerifID</strong>.</p>
+                    <p>Vous avez demandé la réinitialisation de votre mot de passe sur <strong>%s</strong>.</p>
                     
                     <p>Voici votre code de vérification :</p>
                     
@@ -146,7 +146,7 @@ public class SmtpEmailService implements EmailService {
                     <div class="footer">
                         <p>Cet email a été envoyé automatiquement, merci de ne pas y répondre.</p>
                         <p>Pour toute question, contactez-nous à <a href="mailto:%s">%s</a></p>
-                        <p>&copy; 2025 VerifID. Tous droits réservés.</p>
+                        <p>&copy; 2025 %s. Tous droits réservés.</p>
                     </div>
                 </div>
             </body>
