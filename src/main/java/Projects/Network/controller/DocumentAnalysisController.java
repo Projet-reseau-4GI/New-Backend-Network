@@ -54,18 +54,18 @@ public class DocumentAnalysisController {
                         
                         return supabaseStorageService.uploadFile(front, frontPath)
                                 .flatMap(uploadedFrontPath -> {
-                                    if (backFile != null) {
-                                        return backFile.flatMap(back -> {
-                                            String backExt = getExtension(back.filename());
-                                            String backPath = "documents/" + baseName + "_back" + backExt;
-                                            return supabaseStorageService.uploadFile(back, backPath)
-                                                    .flatMap(uploadedBackPath -> 
-                                                        saveAndAnalyze(uploadedFrontPath, uploadedBackPath, cleanPieceType, user, baseName + frontExt, front)
-                                                    );
-                                        });
-                                    } else {
-                                        return saveAndAnalyze(uploadedFrontPath, null, cleanPieceType, user, baseName + frontExt, front);
-                                    }
+                                    Mono<FilePart> backMono = backFile != null ? backFile : Mono.empty();
+                                    
+                                    return backMono.flatMap(back -> {
+                                        String backExt = getExtension(back.filename());
+                                        String backPath = "documents/" + baseName + "_back" + backExt;
+                                        return supabaseStorageService.uploadFile(back, backPath)
+                                                .flatMap(uploadedBackPath -> 
+                                                    saveAndAnalyze(uploadedFrontPath, uploadedBackPath, cleanPieceType, user, baseName + frontExt, front)
+                                                );
+                                    }).switchIfEmpty(
+                                        saveAndAnalyze(uploadedFrontPath, null, cleanPieceType, user, baseName + frontExt, front)
+                                    );
                                 });
                     });
                 });

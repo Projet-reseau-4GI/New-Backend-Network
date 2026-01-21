@@ -13,8 +13,7 @@
     run tests, and package the application.
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
                              https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
     <!-- Maven model version -->
@@ -135,7 +134,8 @@
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
-
+             
+   
         <!-- ========================= -->
         <!--         TESTING           -->
         <!-- ========================= -->
@@ -168,39 +168,45 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-    </dependencies>
-
-    <!-- ========================= -->
-    <!--           BUILD           -->
-    <!-- ========================= -->
-    <build>
-        <plugins>
-
-            <!-- Maven Compiler Plugin:
-                 Handles Java compilation and Lombok annotation processing -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <annotationProcessorPaths>
-                        <path>
-                            <groupId>org.projectlombok</groupId>
-                            <artifactId>lombok</artifactId>
-                        </path>
-                    </annotationProcessorPaths>
-                    <source>8</source>
-                    <target>8</target>
-                </configuration>
-            </plugin>
-
-            <!-- Spring Boot Maven Plugin:
-                 Packages the application and runs it -->
-            <plugin>
+            <!-- Email Support -->
+            <dependency>
                 <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
+                <artifactId>spring-boot-starter-mail</artifactId>
+            </dependency>
 
-        </plugins>
-    </build>
+        </dependencies>
 
-</project>
+        <!-- ========================= -->
+        <!--           BUILD           -->
+        <!-- ========================= -->
+        <build>
+            <plugins>
+
+                <!-- Maven Compiler Plugin:
+                 Handles Java compilation and Lombok annotation processing -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration>
+                        <annotationProcessorPaths>
+                            <path>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok</artifactId>
+                            </path>
+                        </annotationProcessorPaths>
+                        <source>8</source>
+                        <target>8</target>
+                    </configuration>
+                </plugin>
+
+                <!-- Spring Boot Maven Plugin:
+                 Packages the application and runs it -->
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                </plugin>
+
+            </plugins>
+        </build>
+
+    </project>

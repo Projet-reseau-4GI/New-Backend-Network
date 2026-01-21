@@ -121,6 +121,9 @@ public class EnhancedDocumentService {
                             .retrieve()
                             .bodyToMono(Map.class)
                             .timeout(Duration.ofMinutes(10))
+                            .retryWhen(reactor.util.retry.Retry.backoff(2, Duration.ofSeconds(2))
+                                    .filter(throwable -> throwable instanceof io.netty.handler.codec.DecoderException 
+                                            || throwable instanceof reactor.netty.http.client.PrematureCloseException))
                             .map(response -> {
                                 long elapsed = (System.currentTimeMillis() - start) / 1000;
                                 System.out.println("✅ Response received (" + elapsed + "s)");
