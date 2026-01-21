@@ -124,7 +124,7 @@ public class SmtpEmailService implements EmailService {
                     
                     <p>Bonjour,</p>
                     
-                    <p>Vous avez demandé la réinitialisation de votre mot de passe sur <strong>%s</strong>.</p>
+                    <p>Vous avez demandé la réinitialisation de votre mot de passe sur <strong>VerifID</strong>.</p>
                     
                     <p>Voici votre code de vérification :</p>
                     
