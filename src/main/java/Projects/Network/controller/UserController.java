@@ -17,14 +17,9 @@ public class UserController {
 
     private final UserRepository userRepository;
 
-    @Data
-    static class EmailRequest {
-        private String email;
-    }
-
     @GetMapping("/find-id")
-    public Mono<ResponseEntity<Map<String, UUID>>> getMemberIdByEmail(@RequestBody EmailRequest request) {
-        return userRepository.findByEmail(request.getEmail())
+    public Mono<ResponseEntity<Map<String, UUID>>> getMemberIdByEmail(@RequestParam String email) {
+        return userRepository.findByEmail(email)
                 .map(user -> ResponseEntity.ok(Map.of("userId", user.getUserId())))
                 .defaultIfEmpty(ResponseEntity.notFound().build());
     }
