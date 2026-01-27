@@ -25,7 +25,8 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
- * EnhancedDocumentService - Service de récupération et parsing de documents depuis Supabase
+ * EnhancedDocumentService - Service de récupération et parsing de documents
+ * depuis Supabase
  *
  * Gère les opérations de:
  * - Récupération de fichiers depuis Supabase Storage
@@ -60,7 +61,8 @@ public class EnhancedDocumentService {
         return supabaseStorageService.downloadFile(objectName)
                 .doOnSuccess(bytes -> {
                     if (bytes != null) {
-                        System.out.println("✓ Retrieved: " + String.format("%.2f MB", bytes.length / (1024.0 * 1024.0)));
+                        System.out
+                                .println("✓ Retrieved: " + String.format("%.2f MB", bytes.length / (1024.0 * 1024.0)));
                     }
                 })
                 .doOnError(e -> System.err.println("❌ Download failed: " + e.getMessage()));
@@ -70,14 +72,14 @@ public class EnhancedDocumentService {
      * Envoie le fichier à l'API de parsing avec configuration timeout prolongée
      *
      * @param fileBytes contenu binaire du fichier
-     * @param fileType type de fichier (0=PDF, 1=Image)
+     * @param fileType  type de fichier (0=PDF, 1=Image)
      * @return Mono<Map<String, Object>> résultat du parsing
      */
     public Mono<Map<String, Object>> sendToParsingApi(byte[] fileBytes, int fileType) {
         return Mono.fromCallable(() -> {
-                    System.out.println("🔐 Encoding to Base64...");
-                    return Base64.getEncoder().encodeToString(fileBytes);
-                })
+            System.out.println("🔐 Encoding to Base64...");
+            return Base64.getEncoder().encodeToString(fileBytes);
+        })
                 .flatMap(base64File -> {
                     Map<String, Object> payload = new HashMap<>();
                     payload.put("file", base64File);
@@ -93,20 +95,19 @@ public class EnhancedDocumentService {
                             .secure(spec -> {
                                 try {
                                     spec.sslContext(SslContextBuilder.forClient().build())
-                                            .handlerConfigurator(handler -> handler.setHandshakeTimeout(120, TimeUnit.SECONDS));
+                                            .handlerConfigurator(
+                                                    handler -> handler.setHandshakeTimeout(120, TimeUnit.SECONDS));
                                 } catch (Exception e) {
                                     throw new RuntimeException(e);
                                 }
                             })
-                            .doOnConnected(conn ->
-                                    conn.addHandlerLast(new ReadTimeoutHandler(10, TimeUnit.MINUTES))
-                                            .addHandlerLast(new WriteTimeoutHandler(10, TimeUnit.MINUTES))
-                            );
+                            .doOnConnected(conn -> conn.addHandlerLast(new ReadTimeoutHandler(10, TimeUnit.MINUTES))
+                                    .addHandlerLast(new WriteTimeoutHandler(10, TimeUnit.MINUTES)));
 
                     WebClient client = webClientBuilder
                             .clientConnector(new ReactorClientHttpConnector(httpClient))
                             .exchangeStrategies(ExchangeStrategies.builder()
-                                    .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024)) // 10MB
+                                    .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(50 * 1024 * 1024)) // 50MB
                                     .build())
                             .build();
 
@@ -122,7 +123,7 @@ public class EnhancedDocumentService {
                             .bodyToMono(Map.class)
                             .timeout(Duration.ofMinutes(10))
                             .retryWhen(reactor.util.retry.Retry.backoff(2, Duration.ofSeconds(2))
-                                    .filter(throwable -> throwable instanceof io.netty.handler.codec.DecoderException 
+                                    .filter(throwable -> throwable instanceof io.netty.handler.codec.DecoderException
                                             || throwable instanceof reactor.netty.http.client.PrematureCloseException))
                             .map(response -> {
                                 long elapsed = (System.currentTimeMillis() - start) / 1000;
@@ -134,9 +135,7 @@ public class EnhancedDocumentService {
 
                                 return (Map<String, Object>) response.get("result");
                             })
-                            .doOnError(e ->
-                                    System.err.println("❌ API Error: " + e.getMessage())
-                            );
+                            .doOnError(e -> System.err.println("❌ API Error: " + e.getMessage()));
                 });
     }
 
@@ -149,8 +148,10 @@ public class EnhancedDocumentService {
      */
     private int determineFileType(String filename) {
         String lower = filename.toLowerCase();
-        if (lower.endsWith(".pdf")) return 0;
-        if (lower.matches(".*\\.(jpg|jpeg|png|gif|bmp|webp)$")) return 1;
+        if (lower.endsWith(".pdf"))
+            return 0;
+        if (lower.matches(".*\\.(jpg|jpeg|png|gif|bmp|webp)$"))
+            return 1;
         throw new IllegalArgumentException("Unsupported: " + filename);
     }
 
@@ -179,11 +180,13 @@ public class EnhancedDocumentService {
                 .map(result -> {
                     try {
                         var layouts = (java.util.List<?>) result.get("layoutParsingResults");
-                        if (layouts == null || layouts.isEmpty()) return "No results";
+                        if (layouts == null || layouts.isEmpty())
+                            return "No results";
 
                         var first = (Map<String, Object>) layouts.get(0);
                         var markdown = (Map<String, Object>) first.get("markdown");
-                        if (markdown == null) return "No markdown";
+                        if (markdown == null)
+                            return "No markdown";
 
                         String text = (String) markdown.get("text");
                         System.out.println("📝 Extracted: " + (text != null ? text.length() : 0) + " chars");

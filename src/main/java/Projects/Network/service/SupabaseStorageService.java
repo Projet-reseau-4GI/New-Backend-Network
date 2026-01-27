@@ -28,7 +28,7 @@ public class SupabaseStorageService {
 
     private final WebClient webClient = WebClient.builder()
             .exchangeStrategies(ExchangeStrategies.builder()
-                    .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024)) // 10MB
+                    .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(50 * 1024 * 1024)) // 50MB
                     .build())
             .build();
 
@@ -44,8 +44,8 @@ public class SupabaseStorageService {
     /**
      * Upload de contenu brut vers Supabase Storage
      *
-     * @param objectPath chemin de destination dans le bucket
-     * @param content contenu binaire à uploader
+     * @param objectPath  chemin de destination dans le bucket
+     * @param content     contenu binaire à uploader
      * @param contentType type MIME du fichier
      * @return Mono<Void> complété une fois l'upload terminé
      */
@@ -66,7 +66,7 @@ public class SupabaseStorageService {
     /**
      * Upload d'un FilePart réactif vers Supabase Storage
      *
-     * @param filePart fichier multipart réactif depuis WebFlux
+     * @param filePart   fichier multipart réactif depuis WebFlux
      * @param objectPath chemin de destination dans le bucket Supabase
      * @return Mono<String> chemin du fichier uploadé
      */
@@ -150,17 +150,26 @@ public class SupabaseStorageService {
      * @return type MIME détecté
      */
     private String detectContentType(String filename) {
-        if (filename == null) return "application/octet-stream";
+        if (filename == null)
+            return "application/octet-stream";
 
         String lower = filename.toLowerCase();
-        if (lower.endsWith(".pdf")) return "application/pdf";
-        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-        if (lower.endsWith(".png")) return "image/png";
-        if (lower.endsWith(".gif")) return "image/gif";
-        if (lower.endsWith(".bmp")) return "image/bmp";
-        if (lower.endsWith(".tiff") || lower.endsWith(".tif")) return "image/tiff";
-        if (lower.endsWith(".webp")) return "image/webp";
-        if (lower.endsWith(".svg")) return "image/svg+xml";
+        if (lower.endsWith(".pdf"))
+            return "application/pdf";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg"))
+            return "image/jpeg";
+        if (lower.endsWith(".png"))
+            return "image/png";
+        if (lower.endsWith(".gif"))
+            return "image/gif";
+        if (lower.endsWith(".bmp"))
+            return "image/bmp";
+        if (lower.endsWith(".tiff") || lower.endsWith(".tif"))
+            return "image/tiff";
+        if (lower.endsWith(".webp"))
+            return "image/webp";
+        if (lower.endsWith(".svg"))
+            return "image/svg+xml";
 
         return "application/octet-stream";
     }
