@@ -48,7 +48,9 @@ public class DocumentService {
     /**
      * Allowed MIME types for image files.
      */
-    private static final String[] IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif"};
+    private static final String[] IMAGE_TYPES = {
+            "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp", "image/tiff"
+    };
 
     /**
      * Repository used to persist and retrieve document metadata.
@@ -68,13 +70,13 @@ public class DocumentService {
     /**
      * Constructs a new DocumentService with required dependencies.
      *
-     * @param repository document repository
-     * @param userRepository user repository
+     * @param repository             document repository
+     * @param userRepository         user repository
      * @param supabaseStorageService Supabase storage service
      */
     public DocumentService(DocumentRepository repository,
-                           UserRepository userRepository,
-                           SupabaseStorageService supabaseStorageService) {
+            UserRepository userRepository,
+            SupabaseStorageService supabaseStorageService) {
         this.repository = repository;
         this.userRepository = userRepository;
         this.supabaseStorageService = supabaseStorageService;
@@ -89,8 +91,8 @@ public class DocumentService {
      * - Stores the file in Supabase
      * - Saves the document metadata in the database
      *
-     * @param file uploaded file
-     * @param userId identifier of the user
+     * @param file      uploaded file
+     * @param userId    identifier of the user
      * @param pieceType type of the document
      * @return a Mono emitting the saved DocumentEntity
      */
@@ -108,8 +110,7 @@ public class DocumentService {
                         .flatMap(entity -> {
                             entity.setUserId(userId);
                             return repository.save(entity);
-                        })
-                )
+                        }))
                 .doOnSuccess(doc -> System.out.println("Document saved: " + doc.getFileName()))
                 .doOnError(e -> {
                     System.err.println("Upload error: " + e.getMessage());
@@ -160,7 +161,8 @@ public class DocumentService {
                     System.out.println("Document found, deleting from Supabase: " + doc.getMinioPath());
 
                     return supabaseStorageService.deleteFile(doc.getMinioPath())
-                            .doOnSuccess(v -> System.out.println("Document deleted from Supabase: " + doc.getMinioPath()))
+                            .doOnSuccess(
+                                    v -> System.out.println("Document deleted from Supabase: " + doc.getMinioPath()))
                             .thenReturn(doc);
                 })
                 .flatMap(doc -> {
@@ -191,7 +193,8 @@ public class DocumentService {
                         return Mono.error(new IllegalArgumentException("File size exceeds 10MB limit."));
                     }
                     if (!PDF_TYPE.equals(type) && !isImageType(type)) {
-                        return Mono.error(new IllegalArgumentException("Only PDF and images are allowed. Type: " + type));
+                        return Mono
+                                .error(new IllegalArgumentException("Only PDF and images are allowed. Type: " + type));
                     }
                     return Mono.just(file);
                 });
@@ -213,10 +216,11 @@ public class DocumentService {
     }
 
     /**
-     * Stores the uploaded file in Supabase and builds the corresponding DocumentEntity.
+     * Stores the uploaded file in Supabase and builds the corresponding
+     * DocumentEntity.
      *
-     * @param file uploaded file
-     * @param user owner of the document
+     * @param file      uploaded file
+     * @param user      owner of the document
      * @param pieceType type of the document
      * @return a Mono emitting the created DocumentEntity
      */
@@ -225,7 +229,8 @@ public class DocumentService {
         String extension = originalName.contains(".")
                 ? originalName.substring(originalName.lastIndexOf("."))
                 : "";
-        String customObjectName = pieceType + "_de_" + user.getLastName() + "_" + user.getFirstName() + "_" + UUID.randomUUID().toString() + extension;
+        String customObjectName = pieceType + "_de_" + user.getLastName() + "_" + user.getFirstName() + "_"
+                + UUID.randomUUID().toString() + extension;
 
         System.out.println("Supabase object name: " + customObjectName);
 
@@ -236,9 +241,9 @@ public class DocumentService {
                     entity.setMinioPath(path);
                     entity.setPieceType(pieceType);
                     entity.setUserId(user.getUserId());
-                    entity.setFileType(file.headers().getContentType() != null 
-                        ? file.headers().getContentType().toString() 
-                        : "application/octet-stream");
+                    entity.setFileType(file.headers().getContentType() != null
+                            ? file.headers().getContentType().toString()
+                            : "application/octet-stream");
                     entity.setStatus("UPLOADED");
                     return entity;
                 });

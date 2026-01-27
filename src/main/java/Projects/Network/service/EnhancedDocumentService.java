@@ -150,7 +150,7 @@ public class EnhancedDocumentService {
         String lower = filename.toLowerCase();
         if (lower.endsWith(".pdf"))
             return 0;
-        if (lower.matches(".*\\.(jpg|jpeg|png|gif|bmp|webp)$"))
+        if (lower.matches(".*\\.(jpg|jpeg|png|gif|bmp|webp|tiff|tif)$"))
             return 1;
         throw new IllegalArgumentException("Unsupported: " + filename);
     }
