@@ -43,12 +43,39 @@ public class EnhancedDocumentService {
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
     private final SupabaseStorageService supabaseStorageService;
+    private WebClient webClient;
 
     @Value("${parsing.api.url:https://b860jci1i6q6e1s2.aistudio-app.com/layout-parsing}")
     private String parsingApiUrl;
 
     @Value("${parsing.api.token:80217f3d365a319e8a2b20c83639f4e0468a7d05}")
     private String parsingApiToken;
+
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        // Configuration HTTP avec timeouts prolongés et pool de connexions
+        HttpClient httpClient = HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 60000) // 60s connexion
+                .responseTimeout(Duration.ofMinutes(10)) // 10min réponse
+                .secure(spec -> {
+                    try {
+                        spec.sslContext(SslContextBuilder.forClient().build())
+                                .handlerConfigurator(
+                                        handler -> handler.setHandshakeTimeout(120, TimeUnit.SECONDS));
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .doOnConnected(conn -> conn.addHandlerLast(new ReadTimeoutHandler(10, TimeUnit.MINUTES))
+                        .addHandlerLast(new WriteTimeoutHandler(10, TimeUnit.MINUTES)));
+
+        this.webClient = webClientBuilder
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .exchangeStrategies(ExchangeStrategies.builder()
+                        .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(50 * 1024 * 1024)) // 50MB
+                        .build())
+                .build();
+    }
 
     /**
      * Récupère un fichier depuis Supabase Storage
@@ -88,33 +115,10 @@ public class EnhancedDocumentService {
                     payload.put("useDocUnwarping", false);
                     payload.put("useChartRecognition", false);
 
-                    // Configuration HTTP avec timeouts prolongés
-                    HttpClient httpClient = HttpClient.create()
-                            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 60000) // 60s connexion
-                            .responseTimeout(Duration.ofMinutes(10)) // 10min réponse
-                            .secure(spec -> {
-                                try {
-                                    spec.sslContext(SslContextBuilder.forClient().build())
-                                            .handlerConfigurator(
-                                                    handler -> handler.setHandshakeTimeout(120, TimeUnit.SECONDS));
-                                } catch (Exception e) {
-                                    throw new RuntimeException(e);
-                                }
-                            })
-                            .doOnConnected(conn -> conn.addHandlerLast(new ReadTimeoutHandler(10, TimeUnit.MINUTES))
-                                    .addHandlerLast(new WriteTimeoutHandler(10, TimeUnit.MINUTES)));
-
-                    WebClient client = webClientBuilder
-                            .clientConnector(new ReactorClientHttpConnector(httpClient))
-                            .exchangeStrategies(ExchangeStrategies.builder()
-                                    .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(50 * 1024 * 1024)) // 50MB
-                                    .build())
-                            .build();
-
                     System.out.println("📡 Sending to API (this may take 5-10 minutes)...");
                     long start = System.currentTimeMillis();
 
-                    return client.post()
+                    return webClient.post()
                             .uri(parsingApiUrl)
                             .header("Authorization", "token " + parsingApiToken)
                             .contentType(MediaType.APPLICATION_JSON)

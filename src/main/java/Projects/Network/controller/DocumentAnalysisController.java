@@ -32,9 +32,9 @@ public class DocumentAnalysisController {
      */
     @PostMapping(value = "/upload-analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Mono<DocumentAnalysisResponse> uploadAndAnalyze(
-            @RequestPart("frontFile") Mono<FilePart> frontFile,
-            @RequestPart(value = "backFile", required = false) Mono<FilePart> backFile,
-            @RequestPart(value="pieceType", required = false) String pieceType,
+            @RequestPart("frontFile") Mono<FilePart> frontFileMono,
+            @RequestPart(value = "backFile", required = false) Mono<FilePart> backFileMono,
+            @RequestPart(value = "pieceType", required = false) String pieceType,
             @RequestPart("userId") String userId) {
 
         UUID userUuid = UUID.fromString(userId);
@@ -43,29 +43,30 @@ public class DocumentAnalysisController {
                 .switchIfEmpty(Mono.error(new RuntimeException("User not found: " + userId)))
                 .flatMap(user -> {
                     String cleanPieceType = (pieceType != null && !pieceType.isEmpty()) ? pieceType : "UNKNOWN";
-                    // Construct base filename: TYPE_LASTNAME_FIRSTNAME
-                    String baseName = cleanPieceType + "_de_" + 
-                                      (user.getLastName() != null ? user.getLastName().replaceAll("\\s+", "") : "NOLASTNAME") + "_" + 
-                                      (user.getFirstName() != null ? user.getFirstName().replaceAll("\\s+", "") : "NOFIRSTNAME");
+                    String baseName = cleanPieceType + "_de_" +
+                            (user.getLastName() != null ? user.getLastName().replaceAll("\\s+", "") : "NOLASTNAME")
+                            + "_" +
+                            (user.getFirstName() != null ? user.getFirstName().replaceAll("\\s+", "") : "NOFIRSTNAME");
 
-                    return frontFile.flatMap(front -> {
-                        String frontExt = getExtension(front.filename());
+                    // Ensure backFileMono is handled even if it's not provided in the request
+                    Mono<FilePart> safeBackFileMono = backFileMono != null ? backFileMono : Mono.empty();
+
+                    return frontFileMono.flatMap(frontFile -> {
+                        String frontExt = getExtension(frontFile.filename());
                         String frontPath = "documents/" + baseName + "_front" + frontExt;
-                        
-                        return supabaseStorageService.uploadFile(front, frontPath)
+
+                        return supabaseStorageService.uploadFile(frontFile, frontPath)
                                 .flatMap(uploadedFrontPath -> {
-                                    Mono<FilePart> backMono = backFile != null ? backFile : Mono.empty();
-                                    
-                                    return backMono.flatMap(back -> {
-                                        String backExt = getExtension(back.filename());
+                                    return safeBackFileMono.flatMap(backFile -> {
+                                        String backExt = getExtension(backFile.filename());
                                         String backPath = "documents/" + baseName + "_back" + backExt;
-                                        return supabaseStorageService.uploadFile(back, backPath)
-                                                .flatMap(uploadedBackPath -> 
-                                                    saveAndAnalyze(uploadedFrontPath, uploadedBackPath, cleanPieceType, user, baseName + frontExt, front)
-                                                );
+                                        return supabaseStorageService.uploadFile(backFile, backPath)
+                                                .flatMap(uploadedBackPath -> saveAndAnalyze(uploadedFrontPath,
+                                                        uploadedBackPath, cleanPieceType, user, baseName + frontExt,
+                                                        frontFile));
                                     }).switchIfEmpty(
-                                        saveAndAnalyze(uploadedFrontPath, null, cleanPieceType, user, baseName + frontExt, front)
-                                    );
+                                            saveAndAnalyze(uploadedFrontPath, null, cleanPieceType, user,
+                                                    baseName + frontExt, frontFile));
                                 });
                     });
                 });
@@ -76,11 +77,13 @@ public class DocumentAnalysisController {
         return analysisService.analyzeDocument(documentId);
     }
 
-    private Mono<DocumentAnalysisResponse> saveAndAnalyze(String frontPath, String backPath, String pieceType, User user, String fileName, FilePart frontPart) {
-        
-        String contentType = frontPart.headers().getContentType() != null ? 
-                             frontPart.headers().getContentType().toString() : "application/octet-stream";
-        
+    private Mono<DocumentAnalysisResponse> saveAndAnalyze(String frontPath, String backPath, String pieceType,
+            User user, String fileName, FilePart frontPart) {
+
+        String contentType = frontPart.headers().getContentType() != null
+                ? frontPart.headers().getContentType().toString()
+                : "application/octet-stream";
+
         DocumentEntity doc = DocumentEntity.builder()
                 .minioPath(frontPath)
                 .backMinioPath(backPath)
@@ -97,7 +100,6 @@ public class DocumentAnalysisController {
     }
 
     private String getExtension(String filename) {
-        return (filename != null && filename.contains(".")) ? 
-                filename.substring(filename.lastIndexOf(".")) : "";
+        return (filename != null && filename.contains(".")) ? filename.substring(filename.lastIndexOf(".")) : "";
     }
 }
