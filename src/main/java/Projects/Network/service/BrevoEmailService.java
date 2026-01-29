@@ -73,36 +73,44 @@ public class BrevoEmailService implements EmailService {
                 <head>
                     <meta charset="UTF-8">
                     <style>
-                        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333; }
-                        .container { background-color: #ffffff; border: 1px solid #eee; border-radius: 12px; padding: 40px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-                        .header { text-align: center; margin-bottom: 30px; }
-                        .logo { font-size: 28px; font-weight: bold; color: #2ecc71; margin: 0; }
-                        .code-box { background-color: #f8f9fa; border: 2px solid #2ecc71; border-radius: 8px;
-                                    padding: 25px; text-align: center; margin: 30px 0; }
-                        .code { font-size: 36px; font-weight: bold; color: #2c3e50; letter-spacing: 8px; }
-                        .footer { text-align: center; margin-top: 40px; font-size: 13px; color: #95a5a6; border-top: 1px solid #eee; padding-top: 20px; }
-                        .btn { display: inline-block; padding: 12px 24px; background-color: #2ecc71; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; }
+                        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.6; }
+                        .container { background-color: #ffffff; border: 1px solid #e1e4e8; border-radius: 12px; padding: 40px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+                        .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #2ecc71; padding-bottom: 20px; }
+                        .logo { font-size: 32px; font-weight: 800; color: #2ecc71; margin: 0; letter-spacing: -1px; }
+                        .content { padding: 20px 0; }
+                        .code-box { background-color: #f8f9fa; border: 1px solid #2ecc71; border-radius: 8px;
+                                    padding: 30px; text-align: center; margin: 30px 0; }
+                        .code { font-size: 42px; font-weight: bold; color: #2c3e50; letter-spacing: 10px;
+                                white-space: nowrap; display: inline-block; font-family: 'Courier New', Courier, monospace; }
+                        .footer { text-align: center; margin-top: 40px; font-size: 13px; color: #7f8c8d; border-top: 1px solid #eee; padding-top: 25px; }
+                        .highlight { color: #2ecc71; font-weight: 600; }
                     </style>
                 </head>
                 <body>
                     <div class="container">
                         <div class="header">
                             <p class="logo">%s</p>
-                            <h2 style="color: #2c3e50;">Réinitialisation de mot de passe</h2>
                         </div>
 
-                        <p>Bonjour,</p>
-                        <p>Vous avez demandé un code pour réinitialiser le mot de passe de votre compte sur <strong>%s</strong>.</p>
-                        <p>Veuillez utiliser le code de sécurité suivant :</p>
+                        <div class="content">
+                            <h2 style="color: #2c3e50; text-align: center;">Réinitialisation de mot de passe</h2>
+                            <p>Bonjour,</p>
+                            <p>Vous avez demandé un code de sécurité pour réinitialiser le mot de passe de votre compte sur <span class="highlight">%s</span>.</p>
+                            <p>Voici votre code de vérification :</p>
 
-                        <div class="code-box">
-                            <div class="code">%s</div>
+                            <div class="code-box">
+                                <div class="code">%s</div>
+                            </div>
+
+                            <p style="font-size: 14px; color: #e74c3c; background-color: #fdf2f2; padding: 10px; border-radius: 6px; text-align: center;">
+                                <strong>Attention :</strong> Ce code expire dans 15 minutes.
+                            </p>
+
+                            <p style="font-size: 14px; color: #95a5a6; margin-top: 20px;">Si vous n'avez pas demandé cette réinitialisation, vous pouvez ignorer cet e-mail en toute sécurité. Votre mot de passe restera inchangé.</p>
                         </div>
-
-                        <p style="font-size: 14px; color: #7f8c8d;">Ce code est valable pendant 15 minutes. Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet e-mail en toute sécurité.</p>
 
                         <div class="footer">
-                            <p>Besoin d'aide ? Contactez-nous à <a href="mailto:%s" style="color: #2ecc71;">%s</a></p>
+                            <p>Besoin d'assistance ? Contactez-nous à <a href="mailto:%s" style="color: #2ecc71; text-decoration: none;">%s</a></p>
                             <p>&copy; 2026 %s. Tous droits réservés.</p>
                         </div>
                     </div>
