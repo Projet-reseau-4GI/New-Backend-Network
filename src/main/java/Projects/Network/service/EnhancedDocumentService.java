@@ -111,8 +111,8 @@ public class EnhancedDocumentService {
                     Map<String, Object> payload = new HashMap<>();
                     payload.put("file", base64File);
                     payload.put("fileType", fileType);
-                    payload.put("useDocOrientationClassify", false);
-                    payload.put("useDocUnwarping", false);
+                    payload.put("useDocOrientationClassify", true);
+                    payload.put("useDocUnwarping", true);
                     payload.put("useChartRecognition", false);
 
                     System.out.println("📡 Sending to API (this may take 5-10 minutes)...");
