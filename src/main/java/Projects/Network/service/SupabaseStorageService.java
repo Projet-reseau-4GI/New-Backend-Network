@@ -22,15 +22,23 @@ import reactor.core.publisher.Mono;
  * @author Thomas Djotio Ndié
  * @version 2.1
  */
+import reactor.util.retry.Retry;
+import java.time.Duration;
+
 @Service
 @RequiredArgsConstructor
 public class SupabaseStorageService {
 
-    private final WebClient webClient = WebClient.builder()
-            .exchangeStrategies(ExchangeStrategies.builder()
-                    .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(50 * 1024 * 1024)) // 50MB
-                    .build())
-            .build();
+    private final WebClient webClient;
+
+    public SupabaseStorageService(WebClient.Builder webClientBuilder) {
+        this.webClient = webClientBuilder
+                .exchangeStrategies(ExchangeStrategies.builder()
+                        .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(50 * 1024 * 1024)) // 50MB
+                                                                                                            // override
+                        .build())
+                .build();
+    }
 
     @Value("${supabase.url}")
     private String supabaseUrl;
@@ -60,6 +68,9 @@ public class SupabaseStorageService {
                 .bodyValue(content)
                 .retrieve()
                 .bodyToMono(String.class)
+                .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
+                        .filter(throwable -> throwable instanceof RuntimeException
+                                || throwable instanceof java.util.concurrent.TimeoutException))
                 .then();
     }
 
@@ -91,12 +102,18 @@ public class SupabaseStorageService {
                                 .bodyValue(bytes)
                                 .retrieve()
                                 .bodyToMono(String.class)
+                                .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
+                                        .filter(throwable -> throwable instanceof RuntimeException
+                                                || throwable instanceof java.util.concurrent.TimeoutException))
                                 .thenReturn(objectPath);
 
                     } catch (Exception e) {
-                        return Mono.error(new RuntimeException("Supabase upload failed: " + e.getMessage(), e));
+                        return Mono.error(new RuntimeException(
+                                "Supabase upload failed for file " + filePart.filename() + ": " + e.getMessage(), e));
                     }
-                });
+                })
+                .onErrorMap(e -> !(e instanceof RuntimeException),
+                        e -> new RuntimeException("Error processing file upload: " + e.getMessage(), e));
     }
 
     /**
@@ -123,7 +140,8 @@ public class SupabaseStorageService {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
                 .header("apikey", serviceRoleKey)
                 .retrieve()
-                .bodyToMono(Void.class);
+                .bodyToMono(Void.class)
+                .retryWhen(Retry.backoff(3, Duration.ofSeconds(2)));
     }
 
     /**
@@ -140,7 +158,8 @@ public class SupabaseStorageService {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
                 .header("apikey", serviceRoleKey)
                 .retrieve()
-                .bodyToMono(byte[].class);
+                .bodyToMono(byte[].class)
+                .retryWhen(Retry.backoff(3, Duration.ofSeconds(2)));
     }
 
     /**
