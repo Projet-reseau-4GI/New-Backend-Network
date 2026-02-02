@@ -124,121 +124,158 @@ public class DocumentAnalysisService {
         Map<String, String> f = new HashMap<>();
         String[] lines = text.split("\\n");
 
+        // PASS 1: Anchor-Based Proximity Mapping (Ultra-Granular)
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i].toUpperCase().trim();
 
-            // 1. Document Number (NIC / UNIQUE IDENTIFIER)
-            if (line.contains("UNIQUE IDENTIFIER") || line.contains("IDENTIFIANT UNIQUE") || line.contains("NIC NUMBER")
-                    || line.contains("NUMÉRO CNI")) {
-                f.put("documentNumber", getNextVal(lines, i, true));
-            }
-
-            // 2. Surname
-            if (line.contains("NOM") && line.contains("SURNAME")) {
-                f.put("surname", getNextVal(lines, i, false));
-            }
-
-            // 3. Given Names
-            if (line.contains("PRÉNOMS") || (line.contains("GIVEN") && line.contains("NAMES"))) {
-                f.put("givenNames", getNextVal(lines, i, false));
-            }
-
-            // 4. Date of Birth
-            if (line.contains("DATE DE NAISSANCE") || line.contains("DATE OF BIRTH")) {
-                f.put("dateOfBirth", getNextVal(lines, i, false));
-            }
-
-            // 5. Place of Birth
-            if (line.contains("LIEU DE NAISSANCE") || line.contains("PLACE OF BIRTH")) {
-                f.put("placeOfBirth", getNextVal(lines, i, false));
-            }
-
-            // 6. Sex (Fuzzy match for "SEKE7SEX", "SEXE/SEX")
-            if (line.contains("SEX") || line.contains("SEXE")) {
-                String val = getNextVal(lines, i, false);
-                if (val != null && (val.startsWith("M") || val.startsWith("F"))) {
-                    f.put("sex", val.substring(0, 1));
+            if (isAnchor(line, "NOM", "SURNAME"))
+                f.put("surname", getClosestVal(lines, i, "NAME"));
+            if (isAnchor(line, "PRÉNOMS", "GIVEN"))
+                f.put("givenNames", getClosestVal(lines, i, "NAME"));
+            if (isAnchor(line, "DATE DE NAISSANCE", "BIRTH"))
+                f.put("dateOfBirth", getClosestVal(lines, i, "DATE"));
+            if (isAnchor(line, "LIEU DE NAISSANCE", "PLACE OF BIRTH"))
+                f.put("placeOfBirth", getClosestVal(lines, i, "TEXT"));
+            if (isAnchor(line, "SEX")) {
+                String val = getClosestVal(lines, i, "TEXT");
+                if (val != null) {
+                    if (val.contains("M"))
+                        f.put("sex", "M");
+                    else if (val.contains("F"))
+                        f.put("sex", "F");
                 }
             }
-
-            // 7. Height
-            if (line.contains("TAILLE") || line.contains("HEIGHT")) {
-                String val = getNextVal(lines, i, false);
-                if (val != null && val.matches(".*\\d[.,]\\d{2}.*")) {
-                    f.put("height", val);
-                }
+            if (isAnchor(line, "PROFESSION", "OCCUPATION"))
+                f.put("occupation", getClosestVal(lines, i, "TEXT"));
+            if (isAnchor(line, "TAILLE", "HEIGHT"))
+                f.put("height", getClosestVal(lines, i, "HEIGHT"));
+            if (isAnchor(line, "UNIQUE", "IDENTIFIER", "IDENTIFIANT", "NIC", "CNI")) {
+                String id = getClosestVal(lines, i, "ID");
+                if (id != null)
+                    f.put("documentNumber", id);
             }
-
-            // 8. Occupation
-            if (line.contains("PROFESSION") || line.contains("OCCUPATION")) {
-                f.put("occupation", getNextVal(lines, i, false));
-            }
-
-            // 9. Issue Date
-            if (line.contains("DATE DE DÉLIVRANCE") || (line.contains("DATE") && line.contains("ISSUE"))) {
-                f.put("issueDate", getNextVal(lines, i, false));
-            }
-
-            // 10. Expiry Date
-            if (line.contains("EXPIRATION") || (line.contains("DATE") && line.contains("EXPIRY"))) {
-                f.put("expiryDate", getNextVal(lines, i, false));
-            }
+            if (isAnchor(line, "DÉLIVRANCE", "ISSUE"))
+                f.put("issueDate", getClosestVal(lines, i, "DATE"));
+            if (isAnchor(line, "EXPIRATION", "EXPIRY"))
+                f.put("expiryDate", getClosestVal(lines, i, "DATE"));
         }
+
+        // PASS 2: Pattern Discovery Fallback (Word by Word / Pattern by Pattern)
+        recoverMissingFields(text, f);
 
         return f;
     }
 
-    /**
-     * Helper to get the next meaningful value after an anchor line.
-     */
-    private String getNextVal(String[] lines, int currentIndex, boolean isId) {
-        String currentLine = lines[currentIndex].toUpperCase();
+    private boolean isAnchor(String line, String... keywords) {
+        for (String kw : keywords) {
+            if (line.contains(kw.toUpperCase()))
+                return true;
+        }
+        // Character-level fuzzy matching for deformed labels (e.g., "S E X", "B1RTH",
+        // "S3X")
+        if (line.matches(".*S[ EKE7]{1,4}X.*") || line.matches(".*B[ 1I]{1,3}RTH.*"))
+            return true;
+        return false;
+    }
 
-        // Try to see if the value is on the SAME line after the label
-        // This handles cases like "NOM/SURNAME ETSIKE"
-        String[] parts = lines[currentIndex].split("\\s{2,}|[:\\/]");
-        for (String part : parts) {
-            String p = part.trim();
-            if (p.isEmpty() || currentLine.contains(p.toUpperCase()))
-                continue;
-            if (isId && p.matches(".*\\d{5,}.*"))
-                return p;
-            if (!isId && p.length() > 2)
-                return p;
+    private String getClosestVal(String[] lines, int anchorIdx, String type) {
+        // 1. Same line scan (stripped of labels)
+        String sameLine = lines[anchorIdx].replaceAll(
+                "(?i)(NOM|SURNAME|PRÉNOMS|GIVEN|NAMES|DATE|BIRTH|PLACE|SEX|PROFESSION|OCCUPATION|ISSUE|EXPIRY|UNIQUE|IDENTIFIER|CNI|NUMBER|IDENTIFIANT|TAILLE|HEIGHT)",
+                "").trim();
+        sameLine = sameLine.replaceAll("[:\\/\\-#*]", " ").trim();
+        for (String part : sameLine.split("\\s+")) {
+            if (isValid(part, type))
+                return part;
         }
 
-        for (int j = currentIndex + 1; j < Math.min(lines.length, currentIndex + 5); j++) {
+        // 2. Proximity scan (next 5 lines)
+        for (int j = anchorIdx + 1; j < Math.min(lines.length, anchorIdx + 6); j++) {
             String candidate = lines[j].trim();
-            if (candidate.isEmpty())
+            if (candidate.isEmpty() || isLabel(candidate.toUpperCase()))
                 continue;
 
-            String upper = candidate.toUpperCase();
+            // Handle multi-word names directly
+            if (type.equals("NAME") && isValid(candidate, type))
+                return candidate;
 
-            // Skip labels and structural noise
-            if (isLabel(upper))
-                continue;
-            if (candidate.startsWith("<div"))
-                continue;
-
-            // Strip structural noise
-            candidate = candidate.replaceAll("^\\s*[#*\\-]+\\s*", "").trim();
-
-            // For IDs, we expect digits
-            if (isId && !candidate.matches(".*\\d{5,}.*"))
-                continue;
-
-            return candidate;
+            // Otherwise check individual tokens (word by word)
+            for (String token : candidate.split("\\s+")) {
+                String clean = token.replaceAll("[:\\/\\-#*]", "").trim();
+                if (isValid(clean, type))
+                    return clean;
+            }
         }
         return null;
     }
 
+    private boolean isValid(String val, String type) {
+        if (val == null || val.length() < 1)
+            return false;
+        switch (type) {
+            case "DATE":
+                return val.matches(".*\\d{2}[./-]\\d{2}[./-]\\d{4}.*");
+            case "ID":
+                return val.matches("\\d{9,20}");
+            case "HEIGHT":
+                return val.matches(".*\\d[.,]\\d{2}.*");
+            case "NAME":
+                return val.matches("[A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]{2,}") && !isLabel(val.toUpperCase());
+            case "TEXT":
+                return val.length() > 2 && !isLabel(val.toUpperCase()) && !val.startsWith("<div");
+            default:
+                return true;
+        }
+    }
+
+    private void recoverMissingFields(String text, Map<String, String> f) {
+        // Deep Pattern Discovery (Global regex scan)
+        if (f.get("dateOfBirth") == null || f.get("issueDate") == null || f.get("expiryDate") == null) {
+            List<String> dates = findAll(text, "\\d{2}[./-]\\d{2}[./-]\\d{4}");
+            if (dates.size() >= 2) {
+                dates.sort((d1, d2) -> {
+                    try {
+                        return parseDate(d1).compareTo(parseDate(d2));
+                    } catch (Exception e) {
+                        return 0;
+                    }
+                });
+                if (f.get("dateOfBirth") == null)
+                    f.put("dateOfBirth", dates.get(0));
+                if (f.get("expiryDate") == null)
+                    f.put("expiryDate", dates.get(dates.size() - 1));
+                if (f.get("issueDate") == null && dates.size() > 2)
+                    f.put("issueDate", dates.get(1));
+            }
+        }
+
+        if (f.get("documentNumber") == null) {
+            String cni = find(text, "\\b\\d{17}\\b");
+            if (cni != null)
+                f.put("documentNumber", cni);
+            else
+                f.put("documentNumber", find(text, "\\b\\d{9,16}\\b"));
+        }
+    }
+
+    private List<String> findAll(String text, String regex) {
+        List<String> m = new ArrayList<>();
+        Pattern p = Pattern.compile(regex);
+        Matcher matcher = p.matcher(text);
+        while (matcher.find())
+            m.add(matcher.group());
+        return m;
+    }
+
     private boolean isLabel(String text) {
-        return text.contains("SURNAME") || text.contains("NAMES") || text.contains("BIRTH") ||
-                text.contains("PROFESSION") || text.contains("ISSUE") || text.contains("EXPIRY") ||
-                text.contains("HEIGHT") || text.contains("SEX") || text.contains("UNIQUE") ||
-                text.contains("IDENTIFIER") || text.contains("IDENTIFIANT") || text.contains("NIC") ||
-                text.contains("NUMBER") || text.contains("CNI") || text.contains("DATE") ||
-                text.contains("S.P.") || text.contains("FATHER") || text.contains("MOTHER");
+        String u = text.toUpperCase();
+        return u.contains("SURNAME") || u.contains("NAMES") || u.contains("BIRTH") ||
+                u.contains("PROFESSION") || u.contains("ISSUE") || u.contains("EXPIRY") ||
+                u.contains("HEIGHT") || u.contains("SEX") || u.contains("UNIQUE") ||
+                u.contains("IDENTIFIER") || u.contains("IDENTIFIANT") || u.contains("NIC") ||
+                u.contains("NUMBER") || u.contains("CNI") || u.contains("DATE") ||
+                u.contains("S.P.") || u.contains("FATHER") || u.contains("MOTHER") ||
+                u.contains("REPUBLIC") || u.contains("CAMEROON") || u.contains("RÉPUBLIQUE");
     }
 
     private Map<String, String> extractDriverLicense(String text) {
