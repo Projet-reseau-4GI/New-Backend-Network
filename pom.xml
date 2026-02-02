@@ -139,8 +139,8 @@
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
-             
-   
+
+
         <!-- ========================= -->
         <!--         TESTING           -->
         <!-- ========================= -->
@@ -160,58 +160,51 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Swagger/OpenAPI -->
-        <dependency>
-            <groupId>org.springdoc</groupId>
-            <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
-            <version>2.6.0</version>
-        </dependency>
-
         <!-- Actuator pour healthcheck -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-            <!-- Email Support -->
-            <dependency>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-starter-mail</artifactId>
-            </dependency>
+        <!-- Email Support -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
 
-        </dependencies>
+    </dependencies>
 
-        <!-- ========================= -->
-        <!--           BUILD           -->
-        <!-- ========================= -->
-        <build>
-            <plugins>
+    <!-- ========================= -->
+    <!--           BUILD           -->
+    <!-- ========================= -->
+    <build>
+        <plugins>
 
-                <!-- Maven Compiler Plugin:
+            <!-- Maven Compiler Plugin:
                  Handles Java compilation and Lombok annotation processing -->
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-compiler-plugin</artifactId>
-                    <configuration>
-                        <annotationProcessorPaths>
-                            <path>
-                                <groupId>org.projectlombok</groupId>
-                                <artifactId>lombok</artifactId>
-                            </path>
-                        </annotationProcessorPaths>
-                        <source>8</source>
-                        <target>8</target>
-                    </configuration>
-                </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </path>
+                    </annotationProcessorPaths>
+                    <source>8</source>
+                    <target>8</target>
+                </configuration>
+            </plugin>
 
-                <!-- Spring Boot Maven Plugin:
+            <!-- Spring Boot Maven Plugin:
                  Packages the application and runs it -->
-                <plugin>
-                    <groupId>org.springframework.boot</groupId>
-                    <artifactId>spring-boot-maven-plugin</artifactId>
-                </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
 
-            </plugins>
-        </build>
+        </plugins>
+    </build>
 
-    </project>
+</project>
