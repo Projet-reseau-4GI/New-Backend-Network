@@ -11,19 +11,26 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
 /**
  * Spring Security configuration for reactive WebFlux application.
  *
- * This configuration class sets up the security infrastructure for the entire application,
- * defining how HTTP requests should be secured, which authentication mechanisms to use,
- * and how passwords should be encoded. It uses Spring Security's reactive support designed
- * specifically for WebFlux applications that use non-blocking, reactive programming models.
+ * This configuration class sets up the security infrastructure for the entire
+ * application,
+ * defining how HTTP requests should be secured, which authentication mechanisms
+ * to use,
+ * and how passwords should be encoded. It uses Spring Security's reactive
+ * support designed
+ * specifically for WebFlux applications that use non-blocking, reactive
+ * programming models.
  *
  * Current security configuration:
- * - CSRF protection is disabled (suitable for stateless REST APIs using JWT tokens)
+ * - CSRF protection is disabled (suitable for stateless REST APIs using JWT
+ * tokens)
  * - All HTTP exchanges are permitted without authentication (open access)
  * - BCrypt password encoding for secure password storage
  *
  * IMPORTANT SECURITY NOTICE:
- * This configuration currently permits all requests without authentication, which is
- * appropriate for development and testing phases. However, for production deployment,
+ * This configuration currently permits all requests without authentication,
+ * which is
+ * appropriate for development and testing phases. However, for production
+ * deployment,
  * this configuration MUST be enhanced to include:
  * - Proper authentication rules based on JWT tokens
  * - Role-based access control (RBAC) for different user types
@@ -38,12 +45,15 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
  * - AuthService: Handles user authentication and token generation
  * - PasswordEncoder: Securely hashes passwords before database storage
  *
- * The reactive security model used here differs from traditional servlet-based security
- * in that it operates on reactive streams (Mono and Flux) and uses ServerWebExchange
+ * The reactive security model used here differs from traditional servlet-based
+ * security
+ * in that it operates on reactive streams (Mono and Flux) and uses
+ * ServerWebExchange
  * instead of HttpServletRequest/Response.
  *
  * Migration path to production:
- * When moving to production, update the securityWebFilterChain method to include:
+ * When moving to production, update the securityWebFilterChain method to
+ * include:
  * 1. Path-based authorization rules (e.g., /api/admin/** requires ADMIN role)
  * 2. JWT authentication filter integration
  * 3. Exception handling for authentication failures
@@ -61,41 +71,50 @@ public class SecurityConfig {
     /**
      * Configures the security filter chain for handling HTTP requests.
      *
-     * The SecurityWebFilterChain is the reactive equivalent of the traditional servlet-based
-     * FilterChain. It defines a series of security filters that process incoming HTTP requests
-     * before they reach the application controllers. Each filter can inspect, modify, or
+     * The SecurityWebFilterChain is the reactive equivalent of the traditional
+     * servlet-based
+     * FilterChain. It defines a series of security filters that process incoming
+     * HTTP requests
+     * before they reach the application controllers. Each filter can inspect,
+     * modify, or
      * reject requests based on security policies.
      *
      * Current configuration decisions and rationale:
      *
      * 1. CSRF (Cross-Site Request Forgery) Protection - DISABLED
-     *    Rationale: This application uses JWT tokens for authentication, which are sent
-     *    in the Authorization header rather than cookies. CSRF attacks specifically target
-     *    cookie-based authentication by tricking browsers into sending cookies automatically.
-     *    Since JWTs in headers require explicit JavaScript code to include them, CSRF
-     *    protection is unnecessary and would add complexity without security benefit.
+     * Rationale: This application uses JWT tokens for authentication, which are
+     * sent
+     * in the Authorization header rather than cookies. CSRF attacks specifically
+     * target
+     * cookie-based authentication by tricking browsers into sending cookies
+     * automatically.
+     * Since JWTs in headers require explicit JavaScript code to include them, CSRF
+     * protection is unnecessary and would add complexity without security benefit.
      *
-     *    Technical detail: CSRF tokens would need to be generated and validated for each
-     *    state-changing request, but JWT authentication already provides request authenticity
-     *    through cryptographic signatures.
+     * Technical detail: CSRF tokens would need to be generated and validated for
+     * each
+     * state-changing request, but JWT authentication already provides request
+     * authenticity
+     * through cryptographic signatures.
      *
      * 2. Authorization Rules - PERMIT ALL
-     *    Current state: All requests are allowed without authentication checks.
-     *    This is appropriate for:
-     *    - Development phase where rapid testing is needed
-     *    - Public APIs that don't require authentication
-     *    - Demonstration or prototype applications
+     * Current state: All requests are allowed without authentication checks.
+     * This is appropriate for:
+     * - Development phase where rapid testing is needed
+     * - Public APIs that don't require authentication
+     * - Demonstration or prototype applications
      *
-     *    PRODUCTION REQUIREMENT:
-     *    This MUST be changed before production deployment. Replace with proper rules like:
+     * PRODUCTION REQUIREMENT:
+     * This MUST be changed before production deployment. Replace with proper rules
+     * like:
      *
-     *    .authorizeExchange(exchange -> exchange
-     *        .pathMatchers("/api/auth/**").permitAll()           // Public authentication endpoints
-     *        .pathMatchers("/health", "/metrics").permitAll()     // Monitoring endpoints
-     *        .pathMatchers("/api/admin/**").hasRole("ADMIN")      // Admin-only endpoints
-     *        .pathMatchers("/api/documents/**").authenticated()   // Require valid JWT
-     *        .anyExchange().denyByDefault()                       // Deny anything not explicitly allowed
-     *    )
+     * .authorizeExchange(exchange -> exchange
+     * .pathMatchers("/api/auth/**").permitAll() // Public authentication endpoints
+     * .pathMatchers("/health", "/metrics").permitAll() // Monitoring endpoints
+     * .pathMatchers("/api/admin/**").hasRole("ADMIN") // Admin-only endpoints
+     * .pathMatchers("/api/documents/**").authenticated() // Require valid JWT
+     * .anyExchange().denyByDefault() // Deny anything not explicitly allowed
+     * )
      *
      * Filter chain execution order:
      * When a request arrives, it passes through filters in this order:
@@ -122,15 +141,21 @@ public class SecurityConfig {
      *
      * @param http the ServerHttpSecurity builder for configuring security rules,
      *             provides a fluent API for defining security policies specific to
-     *             reactive applications using ServerWebExchange instead of HttpServletRequest
-     * @return the configured SecurityWebFilterChain that will process all HTTP requests
-     *         through the defined security filters before reaching application controllers
+     *             reactive applications using ServerWebExchange instead of
+     *             HttpServletRequest
+     * @return the configured SecurityWebFilterChain that will process all HTTP
+     *         requests
+     *         through the defined security filters before reaching application
+     *         controllers
      */
     @Bean
     public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
         return http
                 .csrf(csrf -> csrf.disable())
                 .authorizeExchange(exchange -> exchange
+                        .pathMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/api-docs/**",
+                                "/webjars/**")
+                        .permitAll()
                         .anyExchange().permitAll())
                 .build();
     }
@@ -138,50 +163,64 @@ public class SecurityConfig {
     /**
      * Provides a BCrypt password encoder bean for secure password hashing.
      *
-     * Password security is critical for protecting user accounts. This method creates
-     * a BCryptPasswordEncoder that implements industry-standard password hashing using
-     * the BCrypt algorithm. BCrypt is specifically designed for password hashing and
-     * provides several security advantages over simple hashing algorithms like MD5 or SHA.
+     * Password security is critical for protecting user accounts. This method
+     * creates
+     * a BCryptPasswordEncoder that implements industry-standard password hashing
+     * using
+     * the BCrypt algorithm. BCrypt is specifically designed for password hashing
+     * and
+     * provides several security advantages over simple hashing algorithms like MD5
+     * or SHA.
      *
      * Why BCrypt is used:
      *
      * 1. Adaptive hashing with configurable work factor:
-     *    BCrypt includes a work factor (cost parameter) that determines how many rounds
-     *    of hashing are performed. As computers get faster, the work factor can be increased
-     *    to maintain security without changing the algorithm. The default work factor is 10,
-     *    which means 2^10 = 1024 rounds of hashing.
+     * BCrypt includes a work factor (cost parameter) that determines how many
+     * rounds
+     * of hashing are performed. As computers get faster, the work factor can be
+     * increased
+     * to maintain security without changing the algorithm. The default work factor
+     * is 10,
+     * which means 2^10 = 1024 rounds of hashing.
      *
      * 2. Built-in salt generation:
-     *    BCrypt automatically generates a unique random salt for each password hash.
-     *    The salt is stored as part of the hash output, eliminating the need to manage
-     *    salts separately. This prevents rainbow table attacks where pre-computed hashes
-     *    could be used to crack passwords.
+     * BCrypt automatically generates a unique random salt for each password hash.
+     * The salt is stored as part of the hash output, eliminating the need to manage
+     * salts separately. This prevents rainbow table attacks where pre-computed
+     * hashes
+     * could be used to crack passwords.
      *
-     *    Salt format: Salts are 16 bytes (128 bits) of cryptographically secure random data,
-     *    which provides 2^128 possible salts, making pre-computation attacks infeasible.
+     * Salt format: Salts are 16 bytes (128 bits) of cryptographically secure random
+     * data,
+     * which provides 2^128 possible salts, making pre-computation attacks
+     * infeasible.
      *
      * 3. Deliberately slow:
-     *    Unlike algorithms designed for speed (like SHA), BCrypt is intentionally slow.
-     *    This makes brute-force attacks computationally expensive. A single password
-     *    verification takes approximately 100ms with default settings, which is
-     *    imperceptible to legitimate users but makes cracking millions of passwords
-     *    prohibitively time-consuming for attackers.
+     * Unlike algorithms designed for speed (like SHA), BCrypt is intentionally
+     * slow.
+     * This makes brute-force attacks computationally expensive. A single password
+     * verification takes approximately 100ms with default settings, which is
+     * imperceptible to legitimate users but makes cracking millions of passwords
+     * prohibitively time-consuming for attackers.
      *
      * 4. Resistance to hardware acceleration:
-     *    BCrypt's algorithm is designed to be memory-hard and resistant to parallelization
-     *    on GPUs or specialized hardware (ASICs), unlike algorithms like SHA which can be
-     *    computed very quickly on GPUs.
+     * BCrypt's algorithm is designed to be memory-hard and resistant to
+     * parallelization
+     * on GPUs or specialized hardware (ASICs), unlike algorithms like SHA which can
+     * be
+     * computed very quickly on GPUs.
      *
      * BCrypt hash output format:
      * $2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
      *
      * Breaking down this format:
-     * - $2a$    : BCrypt algorithm version identifier
-     * - 10$     : Work factor (cost parameter), determines computation time
+     * - $2a$ : BCrypt algorithm version identifier
+     * - 10$ : Work factor (cost parameter), determines computation time
      * - N9qo... : 22-character Base64-encoded salt (128 bits of random data)
      * - ...lhWy : 31-character Base64-encoded hash result
      *
-     * Total length is 60 characters, which is why database password columns should be
+     * Total length is 60 characters, which is why database password columns should
+     * be
      * VARCHAR(60) or larger to accommodate the full hash string.
      *
      * Usage in the application:
@@ -204,7 +243,8 @@ public class SecurityConfig {
      * - Set appropriate work factor balancing security and performance
      *
      * Performance considerations:
-     * BCrypt verification is CPU-intensive by design. For high-traffic applications:
+     * BCrypt verification is CPU-intensive by design. For high-traffic
+     * applications:
      * - Implement rate limiting on login endpoints to prevent brute force
      * - Consider caching successful authentication results with short TTL
      * - Monitor CPU usage during peak authentication times
@@ -225,8 +265,10 @@ public class SecurityConfig {
      * - GDPR security requirements for personal data protection
      *
      * @return a BCryptPasswordEncoder instance configured with default settings
-     *         (work factor 10, SecureRandom for salt generation) that can be injected
-     *         into any service requiring password hashing or verification operations
+     *         (work factor 10, SecureRandom for salt generation) that can be
+     *         injected
+     *         into any service requiring password hashing or verification
+     *         operations
      */
     @Bean
     public PasswordEncoder passwordEncoder() {
