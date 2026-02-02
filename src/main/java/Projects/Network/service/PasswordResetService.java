@@ -42,10 +42,7 @@ public class PasswordResetService {
         log.info("Service email utilisé: {}", emailService.getClass().getSimpleName());
 
         return userRepository.findByEmail(email)
-                .switchIfEmpty(Mono.defer(() -> {
-                    log.warn("Tentative de réinitialisation pour un email inexistant: {}", email);
-                    return Mono.error(new RuntimeException("Si cet email existe, un code a été envoyé"));
-                }))
+                .switchIfEmpty(Mono.error(new RuntimeException("USER_NOT_REGISTERED")))
                 .flatMap(user -> {
                     String code = generateSecureCode();
                     Instant expiry = Instant.now().plus(expiryMinutes, ChronoUnit.MINUTES);
@@ -61,10 +58,12 @@ public class PasswordResetService {
                     return tokenRepository.deleteByUserId(user.getUserId())
                             .then(tokenRepository.save(tokenEntity))
                             .doOnSuccess(saved -> log.info("Token sauvegardé avec succès: {}", saved.getTokenId()))
-                            .doOnError(error -> log.error("Erreur lors de la sauvegarde du token: {}", error.getMessage(), error))
+                            .doOnError(error -> log.error("Erreur lors de la sauvegarde du token: {}",
+                                    error.getMessage(), error))
                             .flatMap(savedToken -> emailService.sendPasswordResetCode(email, code))
                             .doOnSuccess(v -> log.info("Code de réinitialisation créé et envoyé pour: {}", email))
-                            .doOnError(e -> log.error("Erreur lors du traitement pour {}: {}", email, e.getMessage(), e));
+                            .doOnError(
+                                    e -> log.error("Erreur lors du traitement pour {}: {}", email, e.getMessage(), e));
                 });
     }
 

@@ -81,47 +81,164 @@ public class DocumentAnalysisService {
 
         switch (docType) {
             case "ID_CARD":
-                return extractCNI(text);
+                f = extractCNI(text);
+                break;
             case "DRIVER_LICENSE":
-                return extractDriverLicense(text);
+                f = extractDriverLicense(text);
+                break;
             case "PASSPORT":
-                return extractPassport(text);
+                f = extractPassport(text);
+                break;
             default:
-                // Fallback or generic extraction
-                f.put("documentNumber", find(text, "\\b([A-Z]{2}\\d{6,7})\\b"));
-                f.put("surname", find(text, "(?:Nom|Surname)\\s*\\n+([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+)"));
-                return f;
+                break;
         }
+
+        // Apply generic extraction as fallback for missing critical fields
+        Map<String, String> generic = genericExtract(text);
+        for (String key : generic.keySet()) {
+            if (f.get(key) == null || f.get(key).isEmpty()) {
+                f.put(key, generic.get(key));
+            }
+        }
+
+        return f;
+    }
+
+    private Map<String, String> genericExtract(String text) {
+        Map<String, String> f = new HashMap<>();
+
+        // Generic Name detection
+        if (f.get("surname") == null)
+            f.put("surname", find(text, "(?:NOM|SURNAME|LAST NAME)[:\\s]*\\n+([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+)"));
+        if (f.get("givenNames") == null)
+            f.put("givenNames", find(text, "(?:PRÉNOMS|GIVEN NAMES|FIRST NAME)[:\\s]*\\n+([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+)"));
+
+        // Generic Identifier detection
+        if (f.get("documentNumber") == null)
+            f.put("documentNumber", find(text, "(?:N°|NUMBER|IDENTIFIER|ID|NI)[:\\s]*([A-Z0-9 ]{7,20})"));
+
+        return f;
     }
 
     private Map<String, String> extractCNI(String text) {
         Map<String, String> f = new HashMap<>();
-        f.put("documentNumber", find(text, "NUMÉRO CNI\\s*/\\s*NIC NUMBER\\s*\\n+([A-Z0-9]+)"));
-        f.put("surname", find(text, "NOM\\s*/\\s*SURNAME\\s*\\n+([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+?)(?=\\n|PRÉNOMS)"));
-        f.put("givenNames", find(text, "PRÉNOMS\\s*/\\s*GIVEN NAMES\\s*\\n+([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+?)(?=\\n|\\d{9})"));
-        f.put("dateOfBirth", find(text, "DATE DE NAISSANCE\\s*/\\s*DATE OF BIRTH\\s*\\n+([\\d.]+)"));
-        f.put("placeOfBirth", find(text,
-                "LIEU DE NAISSANCE\\s*/\\s*PLACE OF BIRTH\\s*\\n+([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+?)(?=\\n|PROFESSION)"));
-        f.put("sex", find(text, "SEXE\\s*/\\s*SEX\\s*\\n+([MF])"));
-        f.put("expiryDate", find(text, "DATE D'EXPIRATION\\s*/\\s*DATE OF EXPIRY\\s*\\n+([\\d.]+)"));
-        f.put("fatherName", find(text,
-                "NOM DU PÈRE\\s*/\\s*FATHER'S NAME\\s*\\n+([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+?)(?=\\n|NOM DE LA MÈRE)"));
-        f.put("motherName",
-                find(text, "NOM DE LA MÈRE\\s*/\\s*MOTHER'S NAME\\s*\\n+([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+?)(?=\\n|LIEU)"));
-        f.put("occupation", find(text, "PROFESSION\\s*/\\s*OCCUPATION\\s*\\n+([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+?)(?=\\n|DATE)"));
+        String[] lines = text.split("\\n");
 
-        // Complex group for Issue Date and Height
-        Pattern p = Pattern.compile("DATE OF ISSUE HEIGHT\\s*\\n+([\\d.]+)\\s+([\\d.]+\\s*m)",
-                Pattern.CASE_INSENSITIVE);
-        Matcher m = p.matcher(text);
-        if (m.find()) {
-            f.put("issueDate", m.group(1));
-            f.put("height", m.group(2));
-        } else {
-            f.put("issueDate", find(text, "DATE OF ISSUE HEIGHT\\s*\\n+([\\d.]+)"));
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].toUpperCase().trim();
+
+            // 1. Document Number (NIC / UNIQUE IDENTIFIER)
+            if (line.contains("UNIQUE IDENTIFIER") || line.contains("IDENTIFIANT UNIQUE") || line.contains("NIC NUMBER")
+                    || line.contains("NUMÉRO CNI")) {
+                f.put("documentNumber", getNextVal(lines, i, true));
+            }
+
+            // 2. Surname
+            if (line.contains("NOM") && line.contains("SURNAME")) {
+                f.put("surname", getNextVal(lines, i, false));
+            }
+
+            // 3. Given Names
+            if (line.contains("PRÉNOMS") || (line.contains("GIVEN") && line.contains("NAMES"))) {
+                f.put("givenNames", getNextVal(lines, i, false));
+            }
+
+            // 4. Date of Birth
+            if (line.contains("DATE DE NAISSANCE") || line.contains("DATE OF BIRTH")) {
+                f.put("dateOfBirth", getNextVal(lines, i, false));
+            }
+
+            // 5. Place of Birth
+            if (line.contains("LIEU DE NAISSANCE") || line.contains("PLACE OF BIRTH")) {
+                f.put("placeOfBirth", getNextVal(lines, i, false));
+            }
+
+            // 6. Sex (Fuzzy match for "SEKE7SEX", "SEXE/SEX")
+            if (line.contains("SEX") || line.contains("SEXE")) {
+                String val = getNextVal(lines, i, false);
+                if (val != null && (val.startsWith("M") || val.startsWith("F"))) {
+                    f.put("sex", val.substring(0, 1));
+                }
+            }
+
+            // 7. Height
+            if (line.contains("TAILLE") || line.contains("HEIGHT")) {
+                String val = getNextVal(lines, i, false);
+                if (val != null && val.matches(".*\\d[.,]\\d{2}.*")) {
+                    f.put("height", val);
+                }
+            }
+
+            // 8. Occupation
+            if (line.contains("PROFESSION") || line.contains("OCCUPATION")) {
+                f.put("occupation", getNextVal(lines, i, false));
+            }
+
+            // 9. Issue Date
+            if (line.contains("DATE DE DÉLIVRANCE") || (line.contains("DATE") && line.contains("ISSUE"))) {
+                f.put("issueDate", getNextVal(lines, i, false));
+            }
+
+            // 10. Expiry Date
+            if (line.contains("EXPIRATION") || (line.contains("DATE") && line.contains("EXPIRY"))) {
+                f.put("expiryDate", getNextVal(lines, i, false));
+            }
         }
 
         return f;
+    }
+
+    /**
+     * Helper to get the next meaningful value after an anchor line.
+     */
+    private String getNextVal(String[] lines, int currentIndex, boolean isId) {
+        String currentLine = lines[currentIndex].toUpperCase();
+
+        // Try to see if the value is on the SAME line after the label
+        // This handles cases like "NOM/SURNAME ETSIKE"
+        String[] parts = lines[currentIndex].split("\\s{2,}|[:\\/]");
+        for (String part : parts) {
+            String p = part.trim();
+            if (p.isEmpty() || currentLine.contains(p.toUpperCase()))
+                continue;
+            if (isId && p.matches(".*\\d{5,}.*"))
+                return p;
+            if (!isId && p.length() > 2)
+                return p;
+        }
+
+        for (int j = currentIndex + 1; j < Math.min(lines.length, currentIndex + 5); j++) {
+            String candidate = lines[j].trim();
+            if (candidate.isEmpty())
+                continue;
+
+            String upper = candidate.toUpperCase();
+
+            // Skip labels and structural noise
+            if (isLabel(upper))
+                continue;
+            if (candidate.startsWith("<div"))
+                continue;
+
+            // Strip structural noise
+            candidate = candidate.replaceAll("^\\s*[#*\\-]+\\s*", "").trim();
+
+            // For IDs, we expect digits
+            if (isId && !candidate.matches(".*\\d{5,}.*"))
+                continue;
+
+            return candidate;
+        }
+        return null;
+    }
+
+    private boolean isLabel(String text) {
+        return text.contains("SURNAME") || text.contains("NAMES") || text.contains("BIRTH") ||
+                text.contains("PROFESSION") || text.contains("ISSUE") || text.contains("EXPIRY") ||
+                text.contains("HEIGHT") || text.contains("SEX") || text.contains("UNIQUE") ||
+                text.contains("IDENTIFIER") || text.contains("IDENTIFIANT") || text.contains("NIC") ||
+                text.contains("NUMBER") || text.contains("CNI") || text.contains("DATE") ||
+                text.contains("S.P.") || text.contains("FATHER") || text.contains("MOTHER");
     }
 
     private Map<String, String> extractDriverLicense(String text) {
@@ -181,7 +298,12 @@ public class DocumentAnalysisService {
     private String find(String text, String pattern) {
         Pattern p = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
         Matcher m = p.matcher(text);
-        return m.find() ? m.group(1).trim() : null;
+        if (m.find()) {
+            String value = m.group(1).trim();
+            // Clean up Markdown and extra spaces
+            return value.replaceAll("^\\s*[#*\\-]+\\s*", "").trim();
+        }
+        return null;
     }
 
     private String detectType(String text) {
@@ -190,7 +312,9 @@ public class DocumentAnalysisService {
             return "PASSPORT";
         if (u.contains("PERMIS") || u.contains("DRIVING LICENCE") || u.contains("DRIVING LICENSE"))
             return "DRIVER_LICENSE";
-        if (u.contains("CNI") || u.contains("CARTE NATIONALE") || u.contains("NOM DU PÈRE"))
+        if (u.contains("CNI") || u.contains("CARTE NATIONALE") || u.contains("NATIONAL IDENTITY CARD")
+                || u.contains("NOM DU PÈRE") || u.contains("REPUBLIC OF CAMEROON")
+                || u.contains("RÉPUBLIQUE DU CAMEROUN"))
             return "ID_CARD";
         return "UNKNOWN";
     }
@@ -205,7 +329,7 @@ public class DocumentAnalysisService {
         Map<String, String> add = new HashMap<>();
         String[] keys = { "nationality", "sex", "placeOfBirth", "occupation", "height",
                 "canNumber", "placeOfIssue", "documentType", "countryCode", "mrz",
-                "fatherName", "motherName", "categories", "reference", "authority" };
+                "categories", "reference", "authority" };
         for (String k : keys) {
             if (fields.get(k) != null)
                 add.put(k, fields.get(k));
