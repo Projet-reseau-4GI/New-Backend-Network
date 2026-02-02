@@ -1,6 +1,7 @@
 package Projects.Network.service;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
@@ -10,6 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
+import java.time.Duration;
 
 /**
  * SupabaseStorageService - Service de gestion du stockage Supabase
@@ -22,15 +25,13 @@ import reactor.core.publisher.Mono;
  * @author Thomas Djotio Ndié
  * @version 2.1
  */
-import reactor.util.retry.Retry;
-import java.time.Duration;
 
 @Service
-@RequiredArgsConstructor
 public class SupabaseStorageService {
 
     private final WebClient webClient;
 
+    @Autowired
     public SupabaseStorageService(WebClient.Builder webClientBuilder) {
         this.webClient = webClientBuilder
                 .exchangeStrategies(ExchangeStrategies.builder()
