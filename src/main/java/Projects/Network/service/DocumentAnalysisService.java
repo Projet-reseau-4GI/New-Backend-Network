@@ -263,6 +263,22 @@ public class DocumentAnalysisService {
         for (int i = 0; i < lines.size(); i++) {
             String lineUpper = lines.get(i).toUpperCase();
 
+            // Special handling for combined SEXE/SEX TAILLE/HEIGHT line
+            if (lineUpper.contains("SEXE") && lineUpper.contains("TAILLE")) {
+                // This is a combined line, look for M/F and height on next line
+                if (i + 1 < lines.size()) {
+                    String nextLine = lines.get(i + 1).trim();
+                    // Pattern like "M 1,85" or "F 1.67"
+                    java.util.regex.Matcher sexHeightMatcher = Pattern.compile("^([MF])\\s+([0-9][,.]\\d{2})")
+                            .matcher(nextLine);
+                    if (sexHeightMatcher.find()) {
+                        fields.putIfAbsent("sex", sexHeightMatcher.group(1));
+                        fields.putIfAbsent("height", sexHeightMatcher.group(2));
+                        continue;
+                    }
+                }
+            }
+
             for (Map.Entry<String, String[]> entry : labelMap.entrySet()) {
                 String field = entry.getKey();
                 if (fields.containsKey(field) && fields.get(field) != null)
@@ -270,9 +286,19 @@ public class DocumentAnalysisService {
 
                 for (String label : entry.getValue()) {
                     if (lineUpper.contains(label)) {
-                        String value = extractValueAfterLabel(lines, i, lineUpper, label);
+                        String value = extractValueAfterLabel(lines, i, lineUpper, label, field);
                         if (value != null && !value.isEmpty() && !isLabel(value)) {
-                            fields.put(field, value);
+                            // Extra validation for sex field
+                            if (field.equals("sex")) {
+                                if (value.length() == 1 && (value.equals("M") || value.equals("F"))) {
+                                    fields.put(field, value);
+                                }
+                            } else {
+                                // For other fields, make sure we don't have just M or F
+                                if (!(value.length() == 1 && (value.equals("M") || value.equals("F")))) {
+                                    fields.put(field, value);
+                                }
+                            }
                             break;
                         }
                     }
@@ -281,15 +307,26 @@ public class DocumentAnalysisService {
         }
     }
 
-    private String extractValueAfterLabel(List<String> lines, int lineIndex, String lineUpper, String label) {
+    private String extractValueAfterLabel(List<String> lines, int lineIndex, String lineUpper, String label,
+            String fieldName) {
         String line = lines.get(lineIndex);
 
         // Try same line after label
         int labelEnd = lineUpper.indexOf(label) + label.length();
         if (labelEnd < line.length()) {
             String rest = line.substring(labelEnd).replaceAll("^[\\s/:]+", "").trim();
-            if (!rest.isEmpty() && rest.length() > 1 && !isLabel(rest)) {
-                return rest;
+
+            // For sex field, just get the first character if it's M or F
+            if (fieldName.equals("sex")) {
+                if (!rest.isEmpty() && (rest.charAt(0) == 'M' || rest.charAt(0) == 'F')) {
+                    return String.valueOf(rest.charAt(0));
+                }
+            } else {
+                // For other fields, clean up any leading M/F that might be sex data
+                rest = rest.replaceAll("^[MF]\\s+", "").trim();
+                if (!rest.isEmpty() && rest.length() > 1 && !isLabel(rest)) {
+                    return rest;
+                }
             }
         }
 
@@ -300,7 +337,23 @@ public class DocumentAnalysisService {
                 continue;
             if (isLabel(candidate))
                 continue;
-            return candidate;
+
+            // For sex field, look for standalone M or F
+            if (fieldName.equals("sex")) {
+                if (candidate.length() >= 1 && (candidate.charAt(0) == 'M' || candidate.charAt(0) == 'F')) {
+                    return String.valueOf(candidate.charAt(0));
+                }
+            } else {
+                // For other fields, skip if it's just M or F (sex data)
+                if (candidate.length() == 1 && (candidate.equals("M") || candidate.equals("F"))) {
+                    continue;
+                }
+                // Remove leading M/F if followed by space (sex contamination)
+                candidate = candidate.replaceAll("^[MF]\\s+", "").trim();
+                if (!candidate.isEmpty()) {
+                    return candidate;
+                }
+            }
         }
 
         return null;
@@ -469,10 +522,19 @@ public class DocumentAnalysisService {
                 v = v.replaceAll("^[\\s*#\\-:]+", "").replaceAll("[\\s*#\\-:]+$", "");
                 // Remove extra newlines
                 v = v.split("\\n")[0].trim();
+
                 // For sex field, normalize to single letter
-                if (e.getKey().equals("sex") && v.length() > 1) {
-                    v = v.substring(0, 1).toUpperCase();
+                if (e.getKey().equals("sex")) {
+                    if (v.length() >= 1 && (v.charAt(0) == 'M' || v.charAt(0) == 'F')) {
+                        v = String.valueOf(v.charAt(0));
+                    }
+                } else {
+                    // For other fields, remove leading M/F if it looks like sex contamination
+                    if (v.length() > 2 && (v.startsWith("M ") || v.startsWith("F "))) {
+                        v = v.substring(2).trim();
+                    }
                 }
+
                 e.setValue(v);
             }
         });
