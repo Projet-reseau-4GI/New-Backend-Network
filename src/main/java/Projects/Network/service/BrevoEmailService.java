@@ -117,6 +117,42 @@ public class BrevoEmailService implements EmailService {
                 </body>
                 </html>
                 """
-                .formatted(appName, appName, code, supportEmail, supportEmail, appName);
+
+    @Override
+    public Mono<Void> sendEmailVerificationCode(String to, String code) {
+        WebClient webClient = webClientBuilder.baseUrl("https://api.brevo.com/v3").build();
+
+        Map<String, Object> body = Map.of(
+                "sender", Map.of("name", senderName, "email", senderEmail),
+                "to", List.of(Map.of("email", to)),
+                "subject", "Vérification de votre email - " + appName,
+                "htmlContent", buildVerificationEmailContent(code));
+
+        return webClient.post()
+                .uri("/smtp/email")
+                .header("api-key", apiKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(Void.class);
+    }
+
+    private String buildVerificationEmailContent(String code) {
+        return """
+                <!DOCTYPE html>
+                <html>
+                <head><style>
+                    body { font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #333; }
+                    .code { font-size: 32px; font-weight: bold; color: #3498db; letter-spacing: 5px; text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px; }
+                </style></head>
+                <body>
+                    <h2>Vérifiez votre email sur %s</h2>
+                    <p>Voici votre code de vérification :</p>
+                    <div class="code">%s</div>
+                    <p>Ce code expire dans 15 minutes.</p>
+                </body>
+                </html>
+                """
+                .formatted(appName, code);
     }
 }

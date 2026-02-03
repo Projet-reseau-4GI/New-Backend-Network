@@ -8,18 +8,19 @@ import Projects.Network.repository.UserRepository;
 import Projects.Network.service.DocumentAnalysisService;
 import Projects.Network.service.SupabaseStorageService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
-import java.time.LocalDateTime;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/documents")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
+@Slf4j
 public class DocumentAnalysisController {
 
         private final DocumentAnalysisService analysisService;
@@ -27,9 +28,6 @@ public class DocumentAnalysisController {
         private final DocumentRepository documentRepository;
         private final UserRepository userRepository;
 
-        /**
-         * Upload TWO separate files (front + back) and analyze
-         */
         @PostMapping(value = "/upload-analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
         public Mono<DocumentAnalysisResponse> uploadAndAnalyze(
                         @RequestPart("frontFile") Mono<FilePart> frontFileMono,
@@ -41,69 +39,45 @@ public class DocumentAnalysisController {
                 try {
                         userUuid = UUID.fromString(userId);
                 } catch (IllegalArgumentException e) {
-                        return Mono.error(new Projects.Network.exception.ResourceNotFoundException(
-                                        "Invalid user ID format: " + userId));
+                        return Mono.error(new RuntimeException("Invalid user ID format: " + userId));
                 }
 
+                String actualPieceType = (pieceType != null && !pieceType.isEmpty()) ? pieceType : "UNKNOWN";
+
                 return userRepository.findById(userUuid)
-                                .switchIfEmpty(Mono.error(new Projects.Network.exception.ResourceNotFoundException(
-                                                "User not found with ID: " + userId)))
-                                .flatMap(user -> {
-                                        String cleanPieceType = (pieceType != null && !pieceType.isEmpty()) ? pieceType
-                                                        : "UNKNOWN";
-                                        String baseName = cleanPieceType + "_de_" +
-                                                        (user.getLastName() != null
-                                                                        ? user.getLastName().replaceAll("\\s+", "")
-                                                                        : "NOLASTNAME")
-                                                        + "_" +
-                                                        (user.getFirstName() != null
-                                                                        ? user.getFirstName().replaceAll("\\s+", "")
-                                                                        : "NOFIRSTNAME");
+                                .switchIfEmpty(Mono.error(new RuntimeException("User not found")))
+                                .flatMap(user -> frontFileMono.flatMap(frontFile -> {
+                                        String baseName = actualPieceType + "_de_" + user.getLastName() + "_"
+                                                        + user.getFirstName();
+                                        String frontExt = getExtension(frontFile.filename());
+                                        String frontPath = "documents/" + baseName + "_front" + frontExt;
 
-                                        // Ensure backFileMono is handled even if it's not provided in the request
-                                        Mono<FilePart> safeBackFileMono = backFileMono != null ? backFileMono
-                                                        : Mono.empty();
-
-                                        return frontFileMono
-                                                        .switchIfEmpty(Mono.error(
-                                                                        new RuntimeException("Front file is missing")))
-                                                        .flatMap(frontFile -> {
-                                                                String frontExt = getExtension(frontFile.filename());
-                                                                String frontPath = "documents/" + baseName + "_front"
-                                                                                + frontExt;
-
-                                                                return supabaseStorageService
-                                                                                .uploadFile(frontFile, frontPath)
-                                                                                .flatMap(uploadedFrontPath -> {
-                                                                                        return safeBackFileMono.flatMap(
-                                                                                                        backFile -> {
-                                                                                                                String backExt = getExtension(
-                                                                                                                                backFile.filename());
-                                                                                                                String backPath = "documents/"
-                                                                                                                                + baseName
-                                                                                                                                + "_back"
-                                                                                                                                + backExt;
-                                                                                                                return supabaseStorageService
-                                                                                                                                .uploadFile(backFile,
-                                                                                                                                                backPath)
-                                                                                                                                .flatMap(uploadedBackPath -> saveAndAnalyze(
-                                                                                                                                                uploadedFrontPath,
-                                                                                                                                                uploadedBackPath,
-                                                                                                                                                cleanPieceType,
-                                                                                                                                                user,
-                                                                                                                                                baseName + frontExt,
-                                                                                                                                                frontFile));
-                                                                                                        })
-                                                                                                        .switchIfEmpty(
-                                                                                                                        saveAndAnalyze(uploadedFrontPath,
-                                                                                                                                        null,
-                                                                                                                                        cleanPieceType,
-                                                                                                                                        user,
-                                                                                                                                        baseName + frontExt,
-                                                                                                                                        frontFile));
-                                                                                });
+                                        return supabaseStorageService.uploadFile(frontFile, frontPath)
+                                                        .flatMap(uploadedFront -> {
+                                                                Mono<FilePart> safeBack = backFileMono != null
+                                                                                ? backFileMono
+                                                                                : Mono.empty();
+                                                                return safeBack.flatMap(backFile -> {
+                                                                        String backExt = getExtension(
+                                                                                        backFile.filename());
+                                                                        String backPath = "documents/" + baseName
+                                                                                        + "_back" + backExt;
+                                                                        return supabaseStorageService
+                                                                                        .uploadFile(backFile, backPath);
+                                                                })
+                                                                                .flatMap(uploadedBack -> saveAndAnalyze(
+                                                                                                uploadedFront,
+                                                                                                uploadedBack,
+                                                                                                actualPieceType, user,
+                                                                                                frontFile.filename(),
+                                                                                                frontFile))
+                                                                                .switchIfEmpty(saveAndAnalyze(
+                                                                                                uploadedFront, null,
+                                                                                                actualPieceType, user,
+                                                                                                frontFile.filename(),
+                                                                                                frontFile));
                                                         });
-                                });
+                                }));
         }
 
         @GetMapping("/{documentId}/analyze")
@@ -113,10 +87,10 @@ public class DocumentAnalysisController {
 
         private Mono<DocumentAnalysisResponse> saveAndAnalyze(String frontPath, String backPath, String pieceType,
                         User user, String fileName, FilePart frontPart) {
-
-                String contentType = frontPart.headers().getContentType() != null
-                                ? frontPart.headers().getContentType().toString()
-                                : "application/octet-stream";
+                String contentType = "application/octet-stream";
+                if (frontPart != null && frontPart.headers().getContentType() != null) {
+                        contentType = frontPart.headers().getContentType().toString();
+                }
 
                 DocumentEntity doc = DocumentEntity.builder()
                                 .minioPath(frontPath)

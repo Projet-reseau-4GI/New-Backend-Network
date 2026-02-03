@@ -88,4 +88,11 @@ public class User {
      */
     @Column("created_at")
     private Instant createdAt;
+
+    /**
+     * Indicates whether the user's email address has been verified.
+     */
+    @Column("email_verified")
+    @Builder.Default
+    private Boolean emailVerified = false;
 }

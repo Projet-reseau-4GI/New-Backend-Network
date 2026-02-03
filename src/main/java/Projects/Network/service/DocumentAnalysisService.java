@@ -26,6 +26,9 @@ public class DocumentAnalysisService {
 
     private final DocumentRepository documentRepository;
     private final EnhancedDocumentService enhancedDocumentService;
+    private final OcrNormalizationService ocrNormalizationService;
+    private final OcrHeuristicService ocrHeuristicService;
+    private final SemanticValidationService semanticValidationService;
 
     // Date patterns commonly found in Cameroon documents
     private static final DateTimeFormatter[] DATE_FORMATTERS = {
@@ -82,32 +85,39 @@ public class DocumentAnalysisService {
         // PHASE 4: MULTI-STRATEGY EXTRACTION
         Map<String, String> fields = new LinkedHashMap<>();
 
-        // Strategy A: Label-based extraction (label on line N, value on line N+1 or
-        // same line)
+        // Strategy A: Label-based extraction
         extractByLabels(lines, fields);
 
-        // Strategy B: Type-specific numbered extraction (for passports/licenses)
+        // Strategy B: Type-specific numbered extraction
         extractByNumberedFields(cleanText, docType, fields);
 
-        // Strategy C: Pattern discovery (find all dates, numbers, names and assign
-        // contextually)
+        // Strategy C: Pattern discovery
         extractByPatternDiscovery(rawCombined, cleanText, tokens, docType, fields);
 
-        // Strategy D: MRZ parsing (for passports and modern CNIs)
+        // Strategy D: MRZ parsing
         extractFromMRZ(rawCombined, fields);
 
-        // PHASE 5: NORMALIZATION AND CLEANING
+        // PHASE 5: OCR NORMALIZATION
+        applyOcrNormalization(fields);
+
+        // PHASE 6: HEURISTIC CORRECTION
+        applyHeuristicCorrections(fields);
+
+        // PHASE 7: SEMANTIC VALIDATION
+        fields = semanticValidationService.validateAndClean(fields);
+
+        // PHASE 8: BASIC NORMALIZATION
         normalizeFields(fields);
 
-        // PHASE 6: DATE PARSING
+        // PHASE 9: DATE PARSING
         LocalDate birthDate = parseDate(fields.get("dateOfBirth"));
         LocalDate issueDate = parseDate(fields.get("issueDate"));
         LocalDate expiryDate = parseDate(fields.get("expiryDate"));
 
-        // PHASE 7: NAME BUILDING
+        // PHASE 10: NAME BUILDING
         String holderName = buildHolderName(fields);
 
-        // PHASE 8: VALIDITY DETERMINATION
+        // PHASE 11: VALIDITY DETERMINATION
         boolean isExpired = expiryDate != null && expiryDate.isBefore(LocalDate.now());
         boolean hasEmblems = (boolean) security.getOrDefault("hasEmblems", false);
         int sigCount = (int) security.getOrDefault("signatureCount", 0);
@@ -116,7 +126,7 @@ public class DocumentAnalysisService {
         boolean valid = !isExpired && (hasEmblems || hasDocNumber) && !docType.equals("UNKNOWN");
         String validationMessage = buildValidationMessage(valid, isExpired, hasEmblems, docType);
 
-        // PHASE 9: CONFIDENCE CALCULATION
+        // PHASE 12: CONFIDENCE CALCULATION
         double confidence = calculateAdvancedConfidence(fields, security, docType, birthDate, expiryDate);
 
         log.info("=== Analysis Complete: type={}, confidence={}, valid={} ===", docType, confidence, valid);
@@ -140,17 +150,13 @@ public class DocumentAnalysisService {
     // ===================== PRE-PROCESSING =====================
 
     private String preProcess(String raw) {
-        // Remove HTML/XML tags but preserve structure
         String clean = raw.replaceAll("<[^>]+>", "\n");
-        // Normalize whitespace
         clean = clean.replaceAll("[ \\t]+", " ");
-        // Normalize line breaks
         clean = clean.replaceAll("\\n{3,}", "\n\n");
         return clean.trim();
     }
 
     private List<String> tokenize(String text) {
-        // Split into meaningful tokens (words, numbers, dates)
         List<String> tokens = new ArrayList<>();
         Matcher m = Pattern.compile("[A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜŒ]{2,}|\\d{1,2}[./-]\\d{2}[./-]\\d{4}|\\d{5,}|[A-Z]{2}\\d{6,}")
                 .matcher(text.toUpperCase());
@@ -164,33 +170,24 @@ public class DocumentAnalysisService {
 
     private String detectDocumentType(String raw, String clean) {
         String u = raw.toUpperCase();
-
-        // Priority 1: Explicit titles
         if (containsAny(u, "CARTE NATIONALE D'IDENTITÉ", "CARTE NATIONALE D'IDENTITE", "NATIONAL IDENTITY CARD"))
             return "ID_CARD";
         if (containsAny(u, "PERMIS DE CONDUIRE", "DRIVING LICENCE", "DRIVING LICENSE"))
             return "DRIVER_LICENSE";
         if (containsAny(u, "PASSEPORT", "PASSPORT"))
             return "PASSPORT";
-
-        // Priority 2: MRZ indicators
         if (u.contains("P<CMR") || u.contains("PPCMR"))
             return "PASSPORT";
         if (u.contains("I<CMR") || u.contains("ID<CMR"))
             return "ID_CARD";
-
-        // Priority 3: Structural indicators
         if (containsAny(u, "NIC NUMBER", "NUMÉRO CNI", "IDENTIFIANT UNIQUE", "UNIQUE IDENTIFIER"))
             return "ID_CARD";
         if (u.contains("4A.") && u.contains("4B.") && u.contains("5."))
             return "DRIVER_LICENSE";
-
-        // Priority 4: Cameroon presence with document indicators
         if (containsAny(u, "REPUBLIC OF CAMEROON", "RÉPUBLIQUE DU CAMEROUN", "REPUBLIQUE DU CAMEROUN")) {
             if (u.contains("NOM") && u.contains("PRÉNOMS"))
                 return "ID_CARD";
         }
-
         return "UNKNOWN";
     }
 
@@ -206,19 +203,12 @@ public class DocumentAnalysisService {
 
     private Map<String, Object> validateSecurityFeatures(String raw) {
         Map<String, Object> result = new HashMap<>();
-
-        // Count images
         int imageCount = countOccurrences(raw, "<img");
         result.put("imageCount", imageCount);
-
-        // Check for emblems (images near country name at top)
         String top = raw.substring(0, Math.min(raw.length(), 1500)).toUpperCase();
         boolean hasEmblems = (containsAny(top, "RÉPUBLIQUE DU CAMEROUN", "REPUBLIC OF CAMEROON",
-                "REPUBLIQUE DU CAMEROUN"))
-                && imageCount >= 1;
+                "REPUBLIQUE DU CAMEROUN")) && imageCount >= 1;
         result.put("hasEmblems", hasEmblems);
-
-        // Count signatures (images near signature keywords)
         int sigCount = 0;
         String[] sigKeywords = { "SIGNATURE", "AUTORITÉ", "AUTHORITY", "DGSN", "TITULAIRE", "HOLDER", "BEARER" };
         for (String kw : sigKeywords) {
@@ -227,7 +217,6 @@ public class DocumentAnalysisService {
             }
         }
         result.put("signatureCount", sigCount);
-
         return result;
     }
 
@@ -262,15 +251,10 @@ public class DocumentAnalysisService {
 
         for (int i = 0; i < lines.size(); i++) {
             String lineUpper = lines.get(i).toUpperCase();
-
-            // Special handling for combined SEXE/SEX TAILLE/HEIGHT line
             if (lineUpper.contains("SEXE") && lineUpper.contains("TAILLE")) {
-                // This is a combined line, look for M/F and height on next line
                 if (i + 1 < lines.size()) {
                     String nextLine = lines.get(i + 1).trim();
-                    // Pattern like "M 1,85" or "F 1.67"
-                    java.util.regex.Matcher sexHeightMatcher = Pattern.compile("^([MF])\\s+([0-9][,.]\\d{2})")
-                            .matcher(nextLine);
+                    Matcher sexHeightMatcher = Pattern.compile("^([MF])\\s+([0-9][,.]\\d{2})").matcher(nextLine);
                     if (sexHeightMatcher.find()) {
                         fields.putIfAbsent("sex", sexHeightMatcher.group(1));
                         fields.putIfAbsent("height", sexHeightMatcher.group(2));
@@ -278,27 +262,15 @@ public class DocumentAnalysisService {
                     }
                 }
             }
-
             for (Map.Entry<String, String[]> entry : labelMap.entrySet()) {
                 String field = entry.getKey();
-                if (fields.containsKey(field) && fields.get(field) != null)
+                if (fields.get(field) != null)
                     continue;
-
                 for (String label : entry.getValue()) {
                     if (lineUpper.contains(label)) {
                         String value = extractValueAfterLabel(lines, i, lineUpper, label, field);
                         if (value != null && !value.isEmpty() && !isLabel(value)) {
-                            // Extra validation for sex field
-                            if (field.equals("sex")) {
-                                if (value.length() == 1 && (value.equals("M") || value.equals("F"))) {
-                                    fields.put(field, value);
-                                }
-                            } else {
-                                // For other fields, make sure we don't have just M or F
-                                if (!(value.length() == 1 && (value.equals("M") || value.equals("F")))) {
-                                    fields.put(field, value);
-                                }
-                            }
+                            fields.put(field, value);
                             break;
                         }
                     }
@@ -310,61 +282,41 @@ public class DocumentAnalysisService {
     private String extractValueAfterLabel(List<String> lines, int lineIndex, String lineUpper, String label,
             String fieldName) {
         String line = lines.get(lineIndex);
-
-        // Try same line after label
         int labelEnd = lineUpper.indexOf(label) + label.length();
         if (labelEnd < line.length()) {
             String rest = line.substring(labelEnd).replaceAll("^[\\s/:]+", "").trim();
-
-            // For sex field, just get the first character if it's M or F
             if (fieldName.equals("sex")) {
-                if (!rest.isEmpty() && (rest.charAt(0) == 'M' || rest.charAt(0) == 'F')) {
+                if (!rest.isEmpty() && (rest.charAt(0) == 'M' || rest.charAt(0) == 'F'))
                     return String.valueOf(rest.charAt(0));
-                }
             } else {
-                // For other fields, clean up any leading M/F that might be sex data
                 rest = rest.replaceAll("^[MF]\\s+", "").trim();
-                if (!rest.isEmpty() && rest.length() > 1 && !isLabel(rest)) {
+                if (!rest.isEmpty() && rest.length() > 1 && !isLabel(rest))
                     return rest;
-                }
             }
         }
-
-        // Try next lines
         for (int j = lineIndex + 1; j < Math.min(lines.size(), lineIndex + 4); j++) {
             String candidate = lines.get(j).trim();
-            if (candidate.isEmpty())
+            if (candidate.isEmpty() || isLabel(candidate))
                 continue;
-            if (isLabel(candidate))
-                continue;
-
-            // For sex field, look for standalone M or F
             if (fieldName.equals("sex")) {
-                if (candidate.length() >= 1 && (candidate.charAt(0) == 'M' || candidate.charAt(0) == 'F')) {
+                if (candidate.length() >= 1 && (candidate.charAt(0) == 'M' || candidate.charAt(0) == 'F'))
                     return String.valueOf(candidate.charAt(0));
-                }
             } else {
-                // For other fields, skip if it's just M or F (sex data)
-                if (candidate.length() == 1 && (candidate.equals("M") || candidate.equals("F"))) {
+                if (candidate.length() == 1 && (candidate.equals("M") || candidate.equals("F")))
                     continue;
-                }
-                // Remove leading M/F if followed by space (sex contamination)
                 candidate = candidate.replaceAll("^[MF]\\s+", "").trim();
-                if (!candidate.isEmpty()) {
+                if (!candidate.isEmpty())
                     return candidate;
-                }
             }
         }
-
         return null;
     }
 
     private boolean isLabel(String text) {
         String u = text.toUpperCase();
-        String[] labels = { "NOM", "SURNAME", "PRÉNOMS", "GIVEN", "NAMES", "DATE", "BIRTH", "NAISSANCE",
-                "LIEU", "PLACE", "SEX", "SEXE", "TAILLE", "HEIGHT", "PROFESSION", "OCCUPATION",
-                "DÉLIVRANCE", "ISSUE", "EXPIRATION", "EXPIRY", "IDENTIFIANT", "IDENTIFIER",
-                "UNIQUE", "NIC", "NUMBER", "AUTORITÉ", "AUTHORITY", "PÈRE", "FATHER", "MÈRE", "MOTHER" };
+        String[] labels = { "NOM", "SURNAME", "PRÉNOMS", "GIVEN", "NAMES", "DATE", "BIRTH", "NAISSANCE", "LIEU",
+                "PLACE", "SEX", "SEXE", "TAILLE", "HEIGHT", "PROFESSION", "OCCUPATION", "DÉLIVRANCE", "ISSUE",
+                "EXPIRATION", "EXPIRY", "IDENTIFIANT", "IDENTIFIER", "UNIQUE", "NIC", "NUMBER" };
         for (String l : labels) {
             if (u.contains(l))
                 return true;
@@ -380,183 +332,95 @@ public class DocumentAnalysisService {
                     findPattern(text, "(?:^|\\n)1\\.\\s*([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ][A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+)"));
             putIfMissing(fields, "givenNames",
                     findPattern(text, "(?:^|\\n)2\\.\\s*([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ][A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+)"));
-
-            String field3 = findPattern(text, "(?:^|\\n)3\\.\\s*([\\d.-]+)[,\\s]+([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+)");
-            if (field3 == null) {
-                putIfMissing(fields, "dateOfBirth", findPattern(text, "(?:^|\\n)3\\.\\s*([\\d.-]+)"));
-            }
-
+            putIfMissing(fields, "dateOfBirth", findPattern(text, "(?:^|\\n)3\\.\\s*([\\d.-]+)"));
             putIfMissing(fields, "issueDate", findPattern(text, "4a\\.\\s*([\\d.-]+)"));
             putIfMissing(fields, "expiryDate", findPattern(text, "4b\\.\\s*([\\d.-]+)"));
-            putIfMissing(fields, "authority", findPattern(text, "4c\\.\\s*([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s.]+)"));
-            putIfMissing(fields, "reference", findPattern(text, "4d\\.\\s*([A-Z0-9-]+)"));
             putIfMissing(fields, "documentNumber", findPattern(text, "5\\.\\s*([A-Z0-9-]+)"));
-            putIfMissing(fields, "categories", findPattern(text, "9\\.\\s*([A-E0-9]+)"));
-        }
-
-        if (docType.equals("PASSPORT")) {
+        } else if (docType.equals("PASSPORT")) {
             putIfMissing(fields, "surname",
                     findPattern(text, "1\\.\\s*Nom\\s*/\\s*Surname\\s*\\n+([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+)"));
             putIfMissing(fields, "givenNames",
                     findPattern(text, "2\\.\\s*Prénoms\\s*/\\s*Given names\\s*\\n+([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]+)"));
-            putIfMissing(fields, "nationality",
-                    findPattern(text, "3\\.\\s*Nationalité\\s*/\\s*Nationality\\s*\\n+([A-Z/\\s]+)"));
             putIfMissing(fields, "dateOfBirth",
                     findPattern(text, "4\\.\\s*Date de naissance\\s*/\\s*Date of birth\\s*\\n+([\\d./-]+)"));
-            putIfMissing(fields, "sex", findPattern(text, "5\\.\\s*Sexe\\s*/\\s*Sex\\s*\\n*([MF])"));
-            putIfMissing(fields, "placeOfBirth",
-                    findPattern(text, "6\\.\\s*Lieu de naissance\\s*/\\s*Place of birth\\s*\\n+([A-Z\\s-]+)"));
-            putIfMissing(fields, "issueDate",
-                    findPattern(text, "7\\.\\s*Date de délivrance\\s*/\\s*Date of issue\\s*\\n+([\\d./-]+)"));
-            putIfMissing(fields, "expiryDate",
-                    findPattern(text, "8\\.\\s*Date d'expiration\\s*/\\s*Date of expiry\\s*\\n+([\\d./-]+)"));
-            putIfMissing(fields, "occupation",
-                    findPattern(text, "9\\.\\s*Profession\\s*/\\s*Occupation\\s*\\n+([A-Z\\s-]+)"));
             putIfMissing(fields, "documentNumber",
                     findPattern(text, "(?:No de passeport|Passport no\\.?)\\s*\\n*([A-Z]{2}\\d{6,8})"));
         }
     }
 
-    // ===================== PATTERN DISCOVERY =====================
-
     private void extractByPatternDiscovery(String raw, String clean, List<String> tokens, String docType,
             Map<String, String> fields) {
-        // Find all dates in the document
         List<String> allDates = findAllMatches(clean, DATE_PATTERN);
-        log.info("Discovered {} dates: {}", allDates.size(), allDates);
-
-        // Find document numbers
-        if (fields.get("documentNumber") == null || fields.get("documentNumber").length() < 6) {
-            // Try CNI long number (17-20 digits)
+        if (fields.get("documentNumber") == null) {
             String cniNum = findFirstMatch(raw, CNI_NUMBER_PATTERN);
-            if (cniNum != null) {
+            if (cniNum != null)
                 fields.put("documentNumber", cniNum);
-                log.info("Discovered CNI number via pattern: {}", cniNum);
-            } else {
-                // Try AA pattern
+            else {
                 String aaNum = findFirstMatch(raw, CNI_AA_PATTERN);
-                if (aaNum != null) {
+                if (aaNum != null)
                     fields.put("documentNumber", aaNum.replace(" ", ""));
-                    log.info("Discovered AA number via pattern: {}", aaNum);
-                } else if (docType.equals("PASSPORT")) {
-                    String passNum = findFirstMatch(raw, PASSPORT_NUMBER);
-                    if (passNum != null)
-                        fields.put("documentNumber", passNum);
-                } else if (docType.equals("DRIVER_LICENSE")) {
-                    String licNum = findFirstMatch(raw, LICENSE_NUMBER);
-                    if (licNum != null)
-                        fields.put("documentNumber", licNum);
-                }
             }
         }
-
-        // Assign dates contextually
-        if (allDates.size() >= 1 && fields.get("dateOfBirth") == null) {
-            // Birth date is typically the first date found near name fields
+        if (allDates.size() >= 1 && fields.get("dateOfBirth") == null)
             fields.put("dateOfBirth", allDates.get(0));
-        }
-        if (allDates.size() >= 2 && fields.get("issueDate") == null) {
-            fields.put("issueDate", allDates.get(allDates.size() > 2 ? allDates.size() - 2 : 1));
-        }
-        if (allDates.size() >= 2 && fields.get("expiryDate") == null) {
+        if (allDates.size() >= 2 && fields.get("issueDate") == null)
+            fields.put("issueDate", allDates.get(allDates.size() - 2));
+        if (allDates.size() >= 2 && fields.get("expiryDate") == null)
             fields.put("expiryDate", allDates.get(allDates.size() - 1));
-        }
-
-        // Find names via pattern if missing
-        if (fields.get("surname") == null) {
-            // Look for uppercase words after NOM
-            String afterNom = findPattern(clean,
-                    "(?:NOM|SURNAME)[\\s/:]*\\n*([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ][A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]{2,20})");
-            if (afterNom != null && !isLabel(afterNom)) {
-                fields.put("surname", afterNom.trim());
-            }
-        }
-
-        if (fields.get("givenNames") == null) {
-            String afterPrenoms = findPattern(clean,
-                    "(?:PRÉNOMS|GIVEN NAMES)[\\s/:]*\\n*([A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ][A-ZÀÂÄÇÈÉÊËÏÎÔÙÛÜ\\s-]{2,30})");
-            if (afterPrenoms != null && !isLabel(afterPrenoms)) {
-                fields.put("givenNames", afterPrenoms.trim());
-            }
-        }
     }
 
-    // ===================== MRZ PARSING =====================
-
     private void extractFromMRZ(String raw, Map<String, String> fields) {
-        // Passport MRZ (2 lines of 44 characters)
         Pattern mrzPassport = Pattern.compile("P<CMR([A-Z<]+)<<([A-Z<]+)<*\\n*([A-Z0-9<]{44})", Pattern.MULTILINE);
         Matcher m = mrzPassport.matcher(raw.toUpperCase().replaceAll("\\s+", ""));
         if (m.find()) {
-            String surname = m.group(1).replace("<", " ").trim();
-            String givenNames = m.group(2).replace("<", " ").trim();
-            String line2 = m.group(3);
-            String docNum = line2.substring(0, 9).replace("<", "");
-
-            putIfMissing(fields, "surname", surname);
-            putIfMissing(fields, "givenNames", givenNames);
-            putIfMissing(fields, "documentNumber", docNum);
-            log.info("Extracted from MRZ: surname={}, givenNames={}, docNum={}", surname, givenNames, docNum);
+            putIfMissing(fields, "surname", m.group(1).replace("<", " ").trim());
+            putIfMissing(fields, "givenNames", m.group(2).replace("<", " ").trim());
+            putIfMissing(fields, "documentNumber", m.group(3).substring(0, 9).replace("<", ""));
         }
-
-        // CNI MRZ (I<CMR format)
         Pattern mrzCni = Pattern.compile("I<CMR([A-Z0-9<]+)", Pattern.MULTILINE);
         Matcher mCni = mrzCni.matcher(raw.toUpperCase());
-        if (mCni.find()) {
-            String mrzLine = mCni.group(1);
-            // Extract document number (typically 9-10 chars after country code)
-            if (mrzLine.length() > 10) {
-                String docNum = mrzLine.substring(0, 10).replace("<", "");
-                putIfMissing(fields, "documentNumber", docNum);
-            }
+        if (mCni.find() && mCni.group(1).length() > 10) {
+            putIfMissing(fields, "documentNumber", mCni.group(1).substring(0, 10).replace("<", ""));
         }
     }
 
-    // ===================== FIELD NORMALIZATION =====================
+    private void applyOcrNormalization(Map<String, String> fields) {
+        if (fields.get("surname") != null)
+            fields.put("surname",
+                    ocrNormalizationService.normalize(fields.get("surname"), OcrNormalizationService.FieldType.NAME));
+        if (fields.get("givenNames") != null)
+            fields.put("givenNames", ocrNormalizationService.normalize(fields.get("givenNames"),
+                    OcrNormalizationService.FieldType.NAME));
+        if (fields.get("dateOfBirth") != null)
+            fields.put("dateOfBirth", ocrNormalizationService.normalize(fields.get("dateOfBirth"),
+                    OcrNormalizationService.FieldType.DATE));
+    }
+
+    private void applyHeuristicCorrections(Map<String, String> fields) {
+        if (fields.get("placeOfBirth") != null)
+            fields.put("placeOfBirth", ocrHeuristicService.correctPlaceOfBirth(fields.get("placeOfBirth")));
+        if (fields.get("occupation") != null)
+            fields.put("occupation", ocrHeuristicService.correctOccupation(fields.get("occupation")));
+    }
 
     private void normalizeFields(Map<String, String> fields) {
         fields.entrySet().forEach(e -> {
             if (e.getValue() != null) {
-                String v = e.getValue();
-                // Remove leading/trailing noise
-                v = v.replaceAll("^[\\s*#\\-:]+", "").replaceAll("[\\s*#\\-:]+$", "");
-                // Remove extra newlines
-                v = v.split("\\n")[0].trim();
-
-                // For sex field, normalize to single letter
-                if (e.getKey().equals("sex")) {
-                    if (v.length() >= 1 && (v.charAt(0) == 'M' || v.charAt(0) == 'F')) {
-                        v = String.valueOf(v.charAt(0));
-                    }
-                } else {
-                    // For other fields, remove leading M/F if it looks like sex contamination
-                    if (v.length() > 2 && (v.startsWith("M ") || v.startsWith("F "))) {
-                        v = v.substring(2).trim();
-                    }
-                }
-
+                String v = e.getValue().replaceAll("^[\\s*#\\-:]+", "").replaceAll("[\\s*#\\-:]+$", "").split("\\n")[0]
+                        .trim();
+                if (e.getKey().equals("sex") && v.length() >= 1 && (v.charAt(0) == 'M' || v.charAt(0) == 'F'))
+                    v = String.valueOf(v.charAt(0));
                 e.setValue(v);
             }
         });
     }
 
-    // ===================== NAME BUILDING =====================
-
     private String buildHolderName(Map<String, String> fields) {
-        String surname = fields.get("surname");
-        String givenNames = fields.get("givenNames");
-
-        if (surname != null && givenNames != null) {
-            return surname.trim() + " " + givenNames.trim();
-        }
-        if (surname != null)
-            return surname.trim();
-        if (givenNames != null)
-            return givenNames.trim();
-        return "INCONNU";
+        String s = fields.get("surname"), g = fields.get("givenNames");
+        if (s != null && g != null)
+            return s.trim() + " " + g.trim();
+        return s != null ? s.trim() : (g != null ? g.trim() : "INCONNU");
     }
-
-    // ===================== VALIDATION MESSAGE =====================
 
     private String buildValidationMessage(boolean valid, boolean expired, boolean emblems, String docType) {
         if (valid)
@@ -564,98 +428,61 @@ public class DocumentAnalysisService {
         if (expired)
             return "Document expiré";
         if (!emblems)
-            return "Document non authentifié (emblèmes manquants)";
-        if (docType.equals("UNKNOWN"))
-            return "Type de document non reconnu";
+            return "Document non authentifié";
         return "Document invalide";
     }
 
-    // ===================== CONFIDENCE CALCULATION =====================
-
-    private double calculateAdvancedConfidence(Map<String, String> fields, Map<String, Object> security,
-            String docType, LocalDate birth, LocalDate expiry) {
+    private double calculateAdvancedConfidence(Map<String, String> fields, Map<String, Object> security, String docType,
+            LocalDate birth, LocalDate expiry) {
         double score = 0;
-
-        // Core fields (weighted heavily)
-        if (fields.get("surname") != null && fields.get("surname").length() > 2)
-            score += 0.18;
-        if (fields.get("givenNames") != null && fields.get("givenNames").length() > 2)
-            score += 0.12;
-        if (fields.get("documentNumber") != null && fields.get("documentNumber").length() >= 6)
-            score += 0.25;
-
-        // Dates
+        if (fields.get("surname") != null)
+            score += 0.2;
+        if (fields.get("documentNumber") != null)
+            score += 0.3;
         if (birth != null)
-            score += 0.10;
+            score += 0.15;
         if (expiry != null)
-            score += 0.10;
-
-        // Security
+            score += 0.15;
         if ((boolean) security.getOrDefault("hasEmblems", false))
-            score += 0.10;
-        if ((int) security.getOrDefault("signatureCount", 0) > 0)
-            score += 0.08;
-
-        // Type recognition
-        if (!docType.equals("UNKNOWN"))
-            score += 0.07;
-
-        return Math.min(1.0, Math.max(0.0, score));
+            score += 0.2;
+        return Math.min(1.0, score);
     }
-
-    // ===================== ADDITIONAL FIELDS =====================
 
     private Map<String, String> buildAdditionalFields(Map<String, String> fields, Map<String, Object> security) {
         Map<String, String> add = new LinkedHashMap<>();
-        List<String> core = Arrays.asList("surname", "givenNames", "dateOfBirth", "issueDate", "expiryDate",
-                "documentNumber");
-
         fields.forEach((k, v) -> {
-            if (!core.contains(k) && v != null && !v.isEmpty()) {
+            if (v != null && !v.isEmpty())
                 add.put(k, v);
-            }
         });
-
         add.put("security_emblems", String.valueOf(security.get("hasEmblems")));
-        add.put("security_signatures", String.valueOf(security.get("signatureCount")));
-        add.put("security_images", String.valueOf(security.get("imageCount")));
-
         return add;
     }
 
-    // ===================== UTILITY METHODS =====================
-
     private void putIfMissing(Map<String, String> map, String key, String value) {
-        if (value != null && !value.isEmpty() && (map.get(key) == null || map.get(key).isEmpty())) {
+        if (value != null && !value.isEmpty() && map.get(key) == null)
             map.put(key, value);
-        }
     }
 
     private String findPattern(String text, String regex) {
         Matcher m = Pattern.compile(regex, Pattern.CASE_INSENSITIVE | Pattern.MULTILINE).matcher(text);
-        if (m.find())
-            return m.group(1).trim();
-        return null;
+        return m.find() ? m.group(1).trim() : null;
     }
 
     private String findFirstMatch(String text, Pattern pattern) {
         Matcher m = pattern.matcher(text);
-        if (m.find())
-            return m.group(1);
-        return null;
+        return m.find() ? m.group(1) : null;
     }
 
     private List<String> findAllMatches(String text, Pattern pattern) {
         List<String> matches = new ArrayList<>();
         Matcher m = pattern.matcher(text);
-        while (m.find()) {
+        while (m.find())
             matches.add(m.group(1));
-        }
         return matches;
     }
 
     private LocalDate parseDate(String dateStr) {
-        if (dateStr == null || dateStr.length() < 6)
+        if (dateStr == null)
             return null;
         String clean = dateStr.replaceAll("[^\\d./-]", "").trim();
         for (DateTimeFormatter fmt : DATE_FORMATTERS) {

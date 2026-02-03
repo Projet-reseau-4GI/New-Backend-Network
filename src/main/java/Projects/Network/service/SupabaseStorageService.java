@@ -1,6 +1,6 @@
 package Projects.Network.service;
 
-import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -8,37 +8,22 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
-import reactor.util.retry.Retry;
-import java.time.Duration;
 
-/**
- * SupabaseStorageService - Service de gestion du stockage Supabase
- *
- * Gère les opérations de stockage Supabase avec support pour:
- * - Upload de bytes bruts
- * - Upload réactif de FilePart (WebFlux multipart)
- * - Génération d'URLs publiques
- *
- * @author Thomas Djotio Ndié
- * @version 2.1
- */
+import java.util.Map;
 
 @Service
+@Slf4j
 public class SupabaseStorageService {
 
     private final WebClient webClient;
+    private final EncryptionService encryptionService;
 
     @Autowired
-    public SupabaseStorageService(WebClient.Builder webClientBuilder) {
-        this.webClient = webClientBuilder
-                .exchangeStrategies(ExchangeStrategies.builder()
-                        .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(50 * 1024 * 1024)) // 50MB
-                                                                                                            // override
-                        .build())
-                .build();
+    public SupabaseStorageService(WebClient.Builder webClientBuilder, EncryptionService encryptionService) {
+        this.webClient = webClientBuilder.build();
+        this.encryptionService = encryptionService;
     }
 
     @Value("${supabase.url}")
@@ -50,147 +35,45 @@ public class SupabaseStorageService {
     @Value("${supabase.bucket}")
     private String bucket;
 
-    /**
-     * Upload de contenu brut vers Supabase Storage
-     *
-     * @param objectPath  chemin de destination dans le bucket
-     * @param content     contenu binaire à uploader
-     * @param contentType type MIME du fichier
-     * @return Mono<Void> complété une fois l'upload terminé
-     */
-    public Mono<Void> uploadFile(String objectPath, byte[] content, String contentType) {
-        String url = supabaseUrl + "/storage/v1/object/" + bucket + "/" + objectPath;
-
-        return webClient.put()
-                .uri(url)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
-                .header("apikey", serviceRoleKey)
-                .contentType(MediaType.parseMediaType(contentType))
-                .bodyValue(content)
-                .retrieve()
-                .bodyToMono(String.class)
-                .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
-                        .filter(throwable -> throwable instanceof RuntimeException
-                                || throwable instanceof java.util.concurrent.TimeoutException))
-                .then();
+    public Mono<String> uploadFile(String objectPath, byte[] content, String contentType) {
+        return Mono.fromCallable(() -> encryptionService.encrypt(content))
+                .flatMap(encrypted -> webClient.put()
+                        .uri(supabaseUrl + "/storage/v1/object/" + bucket + "/" + objectPath)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
+                        .header("apikey", serviceRoleKey)
+                        .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                        .bodyValue(encrypted)
+                        .retrieve()
+                        .bodyToMono(Void.class)
+                        .thenReturn(objectPath));
     }
 
-    /**
-     * Upload d'un FilePart réactif vers Supabase Storage
-     *
-     * @param filePart   fichier multipart réactif depuis WebFlux
-     * @param objectPath chemin de destination dans le bucket Supabase
-     * @return Mono<String> chemin du fichier uploadé
-     */
     public Mono<String> uploadFile(FilePart filePart, String objectPath) {
         return DataBufferUtils.join(filePart.content())
                 .flatMap(dataBuffer -> {
-                    try {
-                        byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                        dataBuffer.read(bytes);
-                        DataBufferUtils.release(dataBuffer);
-
-                        // Détection du content type
-                        String contentType = detectContentType(filePart.filename());
-
-                        String url = supabaseUrl + "/storage/v1/object/" + bucket + "/" + objectPath;
-
-                        return webClient.put()
-                                .uri(url)
-                                .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
-                                .header("apikey", serviceRoleKey)
-                                .contentType(MediaType.parseMediaType(contentType))
-                                .bodyValue(bytes)
-                                .retrieve()
-                                .bodyToMono(String.class)
-                                .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
-                                        .filter(throwable -> throwable instanceof RuntimeException
-                                                || throwable instanceof java.util.concurrent.TimeoutException))
-                                .thenReturn(objectPath);
-
-                    } catch (Exception e) {
-                        return Mono.error(new RuntimeException(
-                                "Supabase upload failed for file " + filePart.filename() + ": " + e.getMessage(), e));
-                    }
-                })
-                .onErrorMap(e -> !(e instanceof RuntimeException),
-                        e -> new RuntimeException("Error processing file upload: " + e.getMessage(), e));
+                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                    dataBuffer.read(bytes);
+                    DataBufferUtils.release(dataBuffer);
+                    return uploadFile(objectPath, bytes, filePart.headers().getContentType().toString());
+                });
     }
 
-    /**
-     * Génère l'URL publique d'un fichier stocké
-     *
-     * @param objectPath chemin du fichier dans le bucket
-     * @return URL publique du fichier
-     */
-    public String getPublicUrl(String objectPath) {
-        return supabaseUrl + "/storage/v1/object/public/" + bucket + "/" + objectPath;
-    }
-
-    /**
-     * Supprime un fichier dans Supabase Storage
-     *
-     * @param objectPath chemin du fichier dans le bucket
-     * @return Mono<Void> complété une fois la suppression terminée
-     */
-    public Mono<Void> deleteFile(String objectPath) {
-        String url = supabaseUrl + "/storage/v1/object/" + bucket + "/" + objectPath;
-
-        return webClient.delete()
-                .uri(url)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
-                .header("apikey", serviceRoleKey)
-                .retrieve()
-                .bodyToMono(Void.class)
-                .retryWhen(Retry.backoff(3, Duration.ofSeconds(2)));
-    }
-
-    /**
-     * Télécharge un fichier depuis Supabase Storage
-     *
-     * @param objectPath chemin du fichier dans le bucket
-     * @return Mono<byte[]> contenu binaire du fichier
-     */
-    public Mono<byte[]> downloadFile(String objectPath) {
-        String url = supabaseUrl + "/storage/v1/object/" + bucket + "/" + objectPath;
-
+    public Mono<byte[]> downloadAndDecryptFile(String objectPath) {
         return webClient.get()
-                .uri(url)
+                .uri(supabaseUrl + "/storage/v1/object/" + bucket + "/" + objectPath)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
                 .header("apikey", serviceRoleKey)
                 .retrieve()
                 .bodyToMono(byte[].class)
-                .retryWhen(Retry.backoff(3, Duration.ofSeconds(2)));
+                .map(encryptionService::decrypt);
     }
 
-    /**
-     * Détecte le type MIME depuis le nom de fichier
-     *
-     * @param filename nom du fichier
-     * @return type MIME détecté
-     */
-    private String detectContentType(String filename) {
-        if (filename == null)
-            return "application/octet-stream";
-
-        String lower = filename.toLowerCase();
-        if (lower.endsWith(".pdf"))
-            return "application/pdf";
-        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg"))
-            return "image/jpeg";
-        if (lower.endsWith(".png"))
-            return "image/png";
-        if (lower.endsWith(".gif"))
-            return "image/gif";
-        if (lower.endsWith(".bmp"))
-            return "image/bmp";
-        if (lower.endsWith(".tiff") || lower.endsWith(".tif"))
-            return "image/tiff";
-        if (lower.endsWith(".webp"))
-            return "image/webp";
-        if (lower.endsWith(".svg"))
-            return "image/svg+xml";
-
-        return "application/octet-stream";
+    public Mono<Void> deleteFile(String objectPath) {
+        return webClient.delete()
+                .uri(supabaseUrl + "/storage/v1/object/" + bucket + "/" + objectPath)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
+                .header("apikey", serviceRoleKey)
+                .retrieve()
+                .bodyToMono(Void.class);
     }
 }
