@@ -51,6 +51,13 @@ public class EnhancedDocumentService {
                                 var first = (Map<String, Object>) layouts.get(0);
                                 var markdown = (Map<String, Object>) first.get("markdown");
                                 return (String) markdown.get("text");
+                            })
+                            .doOnError(e -> log.error("Error calling parsing API for {}: {}", objectName, e.getMessage()));
+                })
+                .doOnSuccess(text -> log.info("Successfully extracted {} characters from {}", text.length(),
+                        objectName))
+                .doOnError(e -> log.error("Failed to extract markdown from {}: {}", objectName, e.getMessage()));
+    }
 
     public Mono<byte[]> retrieveFileFromSupabase(String objectName) {
         return supabaseStorageService.downloadAndDecryptFile(objectName);

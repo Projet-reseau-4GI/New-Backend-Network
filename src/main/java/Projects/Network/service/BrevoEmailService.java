@@ -117,6 +117,8 @@ public class BrevoEmailService implements EmailService {
                 </body>
                 </html>
                 """
+                .formatted(appName, appName, code, supportEmail, supportEmail, appName);
+    }
 
     @Override
     public Mono<Void> sendEmailVerificationCode(String to, String code) {
