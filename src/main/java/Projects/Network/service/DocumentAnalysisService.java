@@ -104,7 +104,7 @@ public class DocumentAnalysisService {
         applyHeuristicCorrections(fields);
 
         // PHASE 7: SEMANTIC VALIDATION
-        fields = semanticValidationService.validateAndClean(fields);
+        fields = semanticValidationService.validateAndClean(fields, docType);
 
         // PHASE 8: BASIC NORMALIZATION
         normalizeFields(fields);
@@ -118,13 +118,17 @@ public class DocumentAnalysisService {
         String holderName = buildHolderName(fields);
 
         // PHASE 11: VALIDITY DETERMINATION
+        boolean namesValid = fields.get("surname") != null && fields.get("givenNames") != null;
+        boolean datesIncoherent = !semanticValidationService.validateDateConsistency(birthDate, issueDate, expiryDate,
+                docType);
         boolean isExpired = expiryDate != null && expiryDate.isBefore(LocalDate.now());
         boolean hasEmblems = (boolean) security.getOrDefault("hasEmblems", false);
-        int sigCount = (int) security.getOrDefault("signatureCount", 0);
-        boolean hasDocNumber = fields.get("documentNumber") != null && fields.get("documentNumber").length() >= 6;
+        boolean hasDocNumber = fields.get("documentNumber") != null;
 
-        boolean valid = !isExpired && (hasEmblems || hasDocNumber) && !docType.equals("UNKNOWN");
-        String validationMessage = buildValidationMessage(valid, isExpired, hasEmblems, docType);
+        // Primary user rule: Document is valid if not expired
+        boolean valid = !isExpired && namesValid && !docType.equals("UNKNOWN") && !datesIncoherent;
+        String validationMessage = buildValidationMessage(valid, isExpired, datesIncoherent, namesValid, hasDocNumber,
+                docType, hasEmblems);
 
         // PHASE 12: CONFIDENCE CALCULATION
         double confidence = calculateAdvancedConfidence(fields, security, docType, birthDate, expiryDate);
@@ -305,7 +309,7 @@ public class DocumentAnalysisService {
                 if (candidate.length() == 1 && (candidate.equals("M") || candidate.equals("F")))
                     continue;
                 candidate = candidate.replaceAll("^[MF]\\s+", "").trim();
-                if (!candidate.isEmpty())
+                if (!candidate.isEmpty() && !isLabel(candidate))
                     return candidate;
             }
         }
@@ -382,6 +386,12 @@ public class DocumentAnalysisService {
         if (mCni.find() && mCni.group(1).length() > 10) {
             putIfMissing(fields, "documentNumber", mCni.group(1).substring(0, 10).replace("<", ""));
         }
+
+        // Priority MRZ overwrite for names if MRZ is high quality
+        if (m.find()) {
+            fields.put("surname", m.group(1).replace("<", " ").trim());
+            fields.put("givenNames", m.group(2).replace("<", " ").trim());
+        }
     }
 
     private void applyOcrNormalization(Map<String, String> fields) {
@@ -422,14 +432,23 @@ public class DocumentAnalysisService {
         return s != null ? s.trim() : (g != null ? g.trim() : "INCONNU");
     }
 
-    private String buildValidationMessage(boolean valid, boolean expired, boolean emblems, String docType) {
+    private String buildValidationMessage(boolean valid, boolean expired, boolean datesIncoherent, boolean namesValid,
+            boolean hasDocNumber, String docType, boolean hasEmblems) {
         if (valid)
-            return "Document valide";
+            return "Document valide et cohérent";
+        if (docType.equals("UNKNOWN"))
+            return "Type de document non reconnu";
+        if (!namesValid)
+            return "Nom ou prénoms invalides ou illisibles";
+        if (!hasDocNumber)
+            return "Numéro de document invalide ou manquant";
         if (expired)
             return "Document expiré";
-        if (!emblems)
-            return "Document non authentifié";
-        return "Document invalide";
+        if (datesIncoherent)
+            return "Incohérence des dates (Naissance/Émission/Expiration)";
+        if (!hasEmblems)
+            return "Authenticité non confirmée (emblèmes manquants)";
+        return "Document rejeté pour non-conformité métier";
     }
 
     private double calculateAdvancedConfidence(Map<String, String> fields, Map<String, Object> security, String docType,
@@ -450,8 +469,11 @@ public class DocumentAnalysisService {
 
     private Map<String, String> buildAdditionalFields(Map<String, String> fields, Map<String, Object> security) {
         Map<String, String> add = new LinkedHashMap<>();
+        // Filter out fields already present in the main response
+        Set<String> topLevel = Set.of("surname", "givenNames", "documentNumber", "dateOfBirth", "issueDate",
+                "expiryDate", "expirationDate");
         fields.forEach((k, v) -> {
-            if (v != null && !v.isEmpty())
+            if (v != null && !v.isEmpty() && !topLevel.contains(k))
                 add.put(k, v);
         });
         add.put("security_emblems", String.valueOf(security.get("hasEmblems")));
