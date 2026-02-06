@@ -41,6 +41,7 @@ public class SupabaseStorageService {
                         .uri(supabaseUrl + "/storage/v1/object/" + bucket + "/" + objectPath)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
                         .header("apikey", serviceRoleKey)
+                        .header("x-upsert", "true")
                         .contentType(MediaType.APPLICATION_OCTET_STREAM)
                         .bodyValue(encrypted)
                         .retrieve()

@@ -7,6 +7,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -29,6 +31,8 @@ public class DocumentAnalysisService {
     private final OcrNormalizationService ocrNormalizationService;
     private final OcrHeuristicService ocrHeuristicService;
     private final SemanticValidationService semanticValidationService;
+    private final GeminiService geminiService;
+    private final Validator validator;
 
     // Date patterns commonly found in Cameroon documents
     private static final DateTimeFormatter[] DATE_FORMATTERS = {
@@ -58,11 +62,18 @@ public class DocumentAnalysisService {
                     Mono<String> backMono = doc.getBackMinioPath() != null
                             ? enhancedDocumentService.extractMarkdownText(doc.getBackMinioPath())
                             : Mono.just("");
-                    return Mono.zip(frontMono, backMono).map(tuple -> analyze(tuple.getT1(), tuple.getT2()));
+                    return Mono.zip(frontMono, backMono)
+                            .flatMap(tuple -> analyzeFull(tuple.getT1(), tuple.getT2()));
                 });
     }
 
-    private DocumentAnalysisResponse analyze(String front, String back) {
+    public Mono<DocumentAnalysisResponse> analyzeFull(String front, String back) {
+        String combined = front + "\n" + back;
+        return geminiService.extractData(combined)
+                .map(geminiFields -> analyze(front, back, geminiFields));
+    }
+
+    private DocumentAnalysisResponse analyze(String front, String back, Map<String, String> geminiFields) {
         String rawCombined = front + "\n" + back;
         log.info("=== Starting Ultra-Power Document Analysis ===");
         log.info("Raw text length: {}", rawCombined.length());
@@ -97,6 +108,22 @@ public class DocumentAnalysisService {
         // Strategy D: MRZ parsing
         extractFromMRZ(rawCombined, fields);
 
+        // Strategy E: Gemini AI Refinement (Merge & Prioritize)
+        String geminiDocType = geminiFields.get("documentType");
+        if (geminiDocType != null && !geminiDocType.equals("UNKNOWN") && !geminiDocType.equals("null")) {
+            log.info("Gemini suggested document type: {}", geminiDocType);
+            docType = geminiDocType;
+        }
+
+        geminiFields.forEach((k, v) -> {
+            if (v != null && !v.isBlank() && !v.equalsIgnoreCase("null") && !k.equals("documentType")) {
+                // USER PRIORITY: Use Gemini for EVERYTHING it finds, especially if requested by
+                // user.
+                log.info("Gemini Overwrite: field {} = '{}'", k, v);
+                fields.put(k, v);
+            }
+        });
+
         // PHASE 5: OCR NORMALIZATION
         applyOcrNormalization(fields);
 
@@ -104,26 +131,26 @@ public class DocumentAnalysisService {
         applyHeuristicCorrections(fields);
 
         // PHASE 7: SEMANTIC VALIDATION
-        fields = semanticValidationService.validateAndClean(fields, docType);
+        Map<String, String> validatedFields = semanticValidationService.validateAndClean(fields, docType);
 
         // PHASE 8: BASIC NORMALIZATION
-        normalizeFields(fields);
+        normalizeFields(validatedFields);
 
         // PHASE 9: DATE PARSING
-        LocalDate birthDate = parseDate(fields.get("dateOfBirth"));
-        LocalDate issueDate = parseDate(fields.get("issueDate"));
-        LocalDate expiryDate = parseDate(fields.get("expiryDate"));
+        LocalDate birthDate = parseDate(validatedFields.get("dateOfBirth"));
+        LocalDate issueDate = parseDate(validatedFields.get("issueDate"));
+        LocalDate expiryDate = parseDate(validatedFields.get("expiryDate"));
 
         // PHASE 10: NAME BUILDING
-        String holderName = buildHolderName(fields);
+        String holderName = buildHolderName(validatedFields);
 
         // PHASE 11: VALIDITY DETERMINATION
-        boolean namesValid = fields.get("surname") != null && fields.get("givenNames") != null;
+        boolean namesValid = validatedFields.get("surname") != null && validatedFields.get("givenNames") != null;
         boolean datesIncoherent = !semanticValidationService.validateDateConsistency(birthDate, issueDate, expiryDate,
                 docType);
         boolean isExpired = expiryDate != null && expiryDate.isBefore(LocalDate.now());
         boolean hasEmblems = (boolean) security.getOrDefault("hasEmblems", false);
-        boolean hasDocNumber = fields.get("documentNumber") != null;
+        boolean hasDocNumber = validatedFields.get("documentNumber") != null;
 
         // Primary user rule: Document is valid if not expired
         boolean valid = !isExpired && namesValid && !docType.equals("UNKNOWN") && !datesIncoherent;
@@ -131,13 +158,13 @@ public class DocumentAnalysisService {
                 docType, hasEmblems);
 
         // PHASE 12: CONFIDENCE CALCULATION
-        double confidence = calculateAdvancedConfidence(fields, security, docType, birthDate, expiryDate);
+        double confidence = calculateAdvancedConfidence(validatedFields, security, docType, birthDate, expiryDate);
 
         log.info("=== Analysis Complete: type={}, confidence={}, valid={} ===", docType, confidence, valid);
 
-        return DocumentAnalysisResponse.builder()
+        DocumentAnalysisResponse response = DocumentAnalysisResponse.builder()
                 .documentType(docType)
-                .documentNumber(fields.get("documentNumber"))
+                .documentNumber(validatedFields.get("documentNumber"))
                 .holderName(holderName)
                 .dateOfBirth(birthDate)
                 .issueDate(issueDate)
@@ -146,9 +173,25 @@ public class DocumentAnalysisService {
                 .validationMessage(validationMessage)
                 .confidenceScore(confidence)
                 .hasUncertainty(confidence < 0.6)
-                .additionalFields(buildAdditionalFields(fields, security))
+                .additionalFields(buildAdditionalFields(validatedFields, security))
                 .rawExtractedText(rawCombined)
                 .build();
+
+        // PHASE 13: FORMAL BEAN VALIDATION
+        Set<ConstraintViolation<DocumentAnalysisResponse>> violations = validator.validate(response);
+        if (!violations.isEmpty()) {
+            log.warn("Formal validation found {} issues", violations.size());
+            String formalSummary = violations.stream()
+                    .map(v -> v.getMessage())
+                    .distinct()
+                    .collect(Collectors.joining(", "));
+            response.setValidationMessage(response.getValidationMessage() + " (Format: " + formalSummary + ")");
+            // If critical fields fail formal validation, we might want to force isValid to
+            // false
+            // but for now we just enrich the message.
+        }
+
+        return response;
     }
 
     // ===================== PRE-PROCESSING =====================
@@ -376,7 +419,8 @@ public class DocumentAnalysisService {
     private void extractFromMRZ(String raw, Map<String, String> fields) {
         Pattern mrzPassport = Pattern.compile("P<CMR([A-Z<]+)<<([A-Z<]+)<*\\n*([A-Z0-9<]{44})", Pattern.MULTILINE);
         Matcher m = mrzPassport.matcher(raw.toUpperCase().replaceAll("\\s+", ""));
-        if (m.find()) {
+        boolean passportFound = m.find();
+        if (passportFound) {
             putIfMissing(fields, "surname", m.group(1).replace("<", " ").trim());
             putIfMissing(fields, "givenNames", m.group(2).replace("<", " ").trim());
             putIfMissing(fields, "documentNumber", m.group(3).substring(0, 9).replace("<", ""));
@@ -388,7 +432,7 @@ public class DocumentAnalysisService {
         }
 
         // Priority MRZ overwrite for names if MRZ is high quality
-        if (m.find()) {
+        if (passportFound) {
             fields.put("surname", m.group(1).replace("<", " ").trim());
             fields.put("givenNames", m.group(2).replace("<", " ").trim());
         }

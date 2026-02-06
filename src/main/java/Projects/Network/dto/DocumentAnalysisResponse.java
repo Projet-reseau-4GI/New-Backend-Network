@@ -1,5 +1,6 @@
 package Projects.Network.dto;
 
+import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -25,28 +26,32 @@ public class DocumentAnalysisResponse {
 
     /**
      * Type of document analyzed.
-     * Possible values: PASSPORT, ID_CARD, DRIVER_LICENSE
      */
+    @NotBlank(message = "Le type de document est requis")
     private String documentType;
 
     /**
      * Document number extracted from the parsed text.
      */
+    @Size(min = 5, max = 30, message = "Numéro de document invalide")
     private String documentNumber;
 
     /**
      * Full name of the document holder.
      */
+    @NotBlank(message = "Le nom du titulaire est requis")
     private String holderName;
 
     /**
      * Date of birth of the document holder.
      */
+    @Past(message = "La date de naissance doit être dans le passé")
     private LocalDate dateOfBirth;
 
     /**
      * Date when the document was issued.
      */
+    @PastOrPresent(message = "La date d'émission ne peut pas être dans le futur")
     private LocalDate issueDate;
 
     /**
@@ -55,8 +60,9 @@ public class DocumentAnalysisResponse {
     private LocalDate expirationDate;
 
     /**
-     * Indicates whether the document is currently valid (not expired).
+     * Indicates whether the document is currently valid.
      */
+    @NotNull
     private Boolean isValid;
 
     /**

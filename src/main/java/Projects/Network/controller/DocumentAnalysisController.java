@@ -12,6 +12,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.core.io.buffer.DataBufferUtils;
+import Projects.Network.service.EnhancedDocumentService;
 import reactor.core.publisher.Mono;
 
 import java.util.UUID;
@@ -27,6 +29,7 @@ public class DocumentAnalysisController {
         private final SupabaseStorageService supabaseStorageService;
         private final DocumentRepository documentRepository;
         private final UserRepository userRepository;
+        private final EnhancedDocumentService enhancedDocumentService;
 
         @PostMapping(value = "/upload-analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
         public Mono<DocumentAnalysisResponse> uploadAndAnalyze(
@@ -42,40 +45,144 @@ public class DocumentAnalysisController {
                         return Mono.error(new RuntimeException("Invalid user ID format: " + userId));
                 }
 
-                String actualPieceType = (pieceType != null && !pieceType.isEmpty()) ? pieceType : "UNKNOWN";
-
                 return userRepository.findById(userUuid)
                                 .switchIfEmpty(Mono.error(new RuntimeException("User not found")))
                                 .flatMap(user -> frontFileMono.flatMap(frontFile -> {
-                                        String baseName = actualPieceType + "_de_" + user.getLastName() + "_"
-                                                        + user.getFirstName();
-                                        String frontExt = getExtension(frontFile.filename());
-                                        String frontPath = "documents/" + baseName + "_front" + frontExt;
+                                        log.info("Starting analysis for user {} with file {}", user.getUserId(),
+                                                        frontFile.filename());
 
-                                        return supabaseStorageService.uploadFile(frontFile, frontPath)
-                                                        .flatMap(uploadedFront -> {
-                                                                Mono<FilePart> safeBack = backFileMono != null
-                                                                                ? backFileMono
-                                                                                : Mono.empty();
-                                                                return safeBack.flatMap(backFile -> {
-                                                                        String backExt = getExtension(
-                                                                                        backFile.filename());
-                                                                        String backPath = "documents/" + baseName
-                                                                                        + "_back" + backExt;
-                                                                        return supabaseStorageService
-                                                                                        .uploadFile(backFile, backPath);
-                                                                })
-                                                                                .flatMap(uploadedBack -> saveAndAnalyze(
-                                                                                                uploadedFront,
-                                                                                                uploadedBack,
-                                                                                                actualPieceType, user,
-                                                                                                frontFile.filename(),
-                                                                                                frontFile))
-                                                                                .switchIfEmpty(saveAndAnalyze(
-                                                                                                uploadedFront, null,
-                                                                                                actualPieceType, user,
-                                                                                                frontFile.filename(),
-                                                                                                frontFile));
+                                        Mono<byte[]> frontBytesMono = DataBufferUtils.join(frontFile.content())
+                                                        .map(db -> {
+                                                                byte[] b = new byte[db.readableByteCount()];
+                                                                db.read(b);
+                                                                DataBufferUtils.release(db);
+                                                                log.debug("Read {} bytes for front file", b.length);
+                                                                return b;
+                                                        });
+
+                                        Mono<byte[]> backBytesMono = backFileMono
+                                                        .flatMap(bf -> DataBufferUtils.join(bf.content())
+                                                                        .map(db -> {
+                                                                                byte[] b = new byte[db
+                                                                                                .readableByteCount()];
+                                                                                db.read(b);
+                                                                                DataBufferUtils.release(db);
+                                                                                log.debug("Read {} bytes for back file",
+                                                                                                b.length);
+                                                                                return b;
+                                                                        }))
+                                                        .defaultIfEmpty(new byte[0]);
+
+                                        return Mono.zip(frontBytesMono, backBytesMono)
+                                                        .flatMap(bytesTuple -> {
+                                                                byte[] frontBytes = bytesTuple.getT1();
+                                                                byte[] backBytes = bytesTuple.getT2();
+
+                                                                Mono<String> frontOcr = enhancedDocumentService
+                                                                                .extractMarkdownFromBytes(frontBytes,
+                                                                                                frontFile.filename()
+                                                                                                                .toLowerCase()
+                                                                                                                .endsWith(".pdf"));
+                                                                Mono<String> backOcr = backBytes.length > 0
+                                                                                ? enhancedDocumentService
+                                                                                                .extractMarkdownFromBytes(
+                                                                                                                backBytes,
+                                                                                                                frontFile.filename()
+                                                                                                                                .toLowerCase()
+                                                                                                                                .endsWith(".pdf")) // assuming
+                                                                                                                                                   // same
+                                                                                                                                                   // type
+                                                                                : Mono.just("");
+
+                                                                log.info("OCR completed for user {}. Starting analysis...",
+                                                                                user.getUserId());
+                                                                return Mono.zip(frontOcr, backOcr)
+                                                                                .flatMap(ocrTuple -> {
+                                                                                        log.info("Analysis engine triggered for user {}",
+                                                                                                        user.getUserId());
+                                                                                        return analysisService
+                                                                                                        .analyzeFull(ocrTuple
+                                                                                                                        .getT1(),
+                                                                                                                        ocrTuple.getT2())
+                                                                                                        .flatMap(analysis -> {
+                                                                                                                String finalType = analysis
+                                                                                                                                .getDocumentType();
+                                                                                                                log.info("Analysis result: type={}",
+                                                                                                                                finalType);
+                                                                                                                if (finalType == null
+                                                                                                                                || finalType.equals(
+                                                                                                                                                "UNKNOWN")) {
+                                                                                                                        finalType = (pieceType != null
+                                                                                                                                        && !pieceType.isEmpty())
+                                                                                                                                                        ? pieceType
+                                                                                                                                                        : "UNKNOWN";
+                                                                                                                }
+
+                                                                                                                String baseName = finalType
+                                                                                                                                + "_de_"
+                                                                                                                                + user.getLastName()
+                                                                                                                                + "_"
+                                                                                                                                + user.getFirstName();
+                                                                                                                String ext = getExtension(
+                                                                                                                                frontFile.filename());
+                                                                                                                String frontPath = "documents/"
+                                                                                                                                + baseName
+                                                                                                                                + "_front"
+                                                                                                                                + ext;
+                                                                                                                String backPath = backBytes.length > 0
+                                                                                                                                ? "documents/" + baseName
+                                                                                                                                                + "_back"
+                                                                                                                                                + ext
+                                                                                                                                : null;
+
+                                                                                                                String contentType = frontFile
+                                                                                                                                .headers()
+                                                                                                                                .getContentType() != null
+                                                                                                                                                ? frontFile.headers()
+                                                                                                                                                                .getContentType()
+                                                                                                                                                                .toString()
+                                                                                                                                                : "application/octet-stream";
+
+                                                                                                                DocumentEntity doc = DocumentEntity
+                                                                                                                                .builder()
+                                                                                                                                .userId(user.getUserId())
+                                                                                                                                .pieceType(finalType)
+                                                                                                                                .fileName(baseName
+                                                                                                                                                + ext)
+                                                                                                                                .minioPath(frontPath)
+                                                                                                                                .backMinioPath(backPath)
+                                                                                                                                .fileType(contentType)
+                                                                                                                                .fileSize((long) frontBytes.length)
+                                                                                                                                .status("UPLOADED")
+                                                                                                                                .build();
+
+                                                                                                                log.info("Saving document record to database for user {}",
+                                                                                                                                user.getUserId());
+                                                                                                                return documentRepository
+                                                                                                                                .save(doc)
+                                                                                                                                .flatMap(saved -> {
+                                                                                                                                        log.info("Uploading files to Supabase: {}",
+                                                                                                                                                        frontPath);
+                                                                                                                                        Mono<String> upFront = supabaseStorageService
+                                                                                                                                                        .uploadFile(frontPath,
+                                                                                                                                                                        frontBytes,
+                                                                                                                                                                        contentType);
+                                                                                                                                        Mono<String> upBack = backPath != null
+                                                                                                                                                        ? supabaseStorageService
+                                                                                                                                                                        .uploadFile(backPath,
+                                                                                                                                                                                        backBytes,
+                                                                                                                                                                                        contentType)
+                                                                                                                                                        : Mono.just("");
+
+                                                                                                                                        return Mono.zip(upFront,
+                                                                                                                                                        upBack)
+                                                                                                                                                        .doOnSuccess(v -> log
+                                                                                                                                                                        .info("Upload completed for user {}",
+                                                                                                                                                                                        user.getUserId()))
+                                                                                                                                                        .thenReturn(analysis);
+                                                                                                                                });
+                                                                                                        });
+                                                                                });
                                                         });
                                 }));
         }
@@ -83,28 +190,6 @@ public class DocumentAnalysisController {
         @GetMapping("/{documentId}/analyze")
         public Mono<DocumentAnalysisResponse> analyzeExisting(@PathVariable UUID documentId) {
                 return analysisService.analyzeDocument(documentId);
-        }
-
-        private Mono<DocumentAnalysisResponse> saveAndAnalyze(String frontPath, String backPath, String pieceType,
-                        User user, String fileName, FilePart frontPart) {
-                String contentType = "application/octet-stream";
-                if (frontPart != null && frontPart.headers().getContentType() != null) {
-                        contentType = frontPart.headers().getContentType().toString();
-                }
-
-                DocumentEntity doc = DocumentEntity.builder()
-                                .minioPath(frontPath)
-                                .backMinioPath(backPath)
-                                .pieceType(pieceType)
-                                .userId(user.getUserId())
-                                .fileName(fileName)
-                                .fileType(contentType)
-                                .fileSize(0L)
-                                .status("UPLOADED")
-                                .build();
-
-                return documentRepository.save(doc)
-                                .flatMap(saved -> analysisService.analyzeDocument(saved.getId()));
         }
 
         private String getExtension(String filename) {
