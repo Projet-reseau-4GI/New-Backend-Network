@@ -187,10 +187,6 @@ public class DocumentAnalysisController {
                                 }));
         }
 
-        @GetMapping("/{documentId}/analyze")
-        public Mono<DocumentAnalysisResponse> analyzeExisting(@PathVariable UUID documentId) {
-                return analysisService.analyzeDocument(documentId);
-        }
 
         private String getExtension(String filename) {
                 return (filename != null && filename.contains(".")) ? filename.substring(filename.lastIndexOf("."))
