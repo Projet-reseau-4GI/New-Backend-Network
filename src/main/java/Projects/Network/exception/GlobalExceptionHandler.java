@@ -15,6 +15,20 @@ import java.time.LocalDateTime;
 @Slf4j
 public class GlobalExceptionHandler {
 
+        @ExceptionHandler(org.springframework.web.reactive.resource.NoResourceFoundException.class)
+        public Mono<ResponseEntity<ErrorResponse>> handleNoResourceFoundException(
+                        org.springframework.web.reactive.resource.NoResourceFoundException ex,
+                        ServerWebExchange exchange) {
+                return Mono.just(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                                .body(ErrorResponse.builder()
+                                                .timestamp(LocalDateTime.now())
+                                                .status(HttpStatus.NOT_FOUND.value())
+                                                .error(HttpStatus.NOT_FOUND.getReasonPhrase())
+                                                .message("Route or resource not found")
+                                                .path(exchange.getRequest().getPath().value())
+                                                .build()));
+        }
+
         @ExceptionHandler(ResourceNotFoundException.class)
         public Mono<ResponseEntity<ErrorResponse>> handleResourceNotFoundException(ResourceNotFoundException ex,
                         ServerWebExchange exchange) {

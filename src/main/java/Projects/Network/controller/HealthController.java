@@ -10,11 +10,14 @@ import java.util.Map;
  * HealthController
  *
  * This controller is responsible for exposing a simple health-check endpoint.
- * It allows external systems (load balancers, monitoring tools, DevOps pipelines)
+ * It allows external systems (load balancers, monitoring tools, DevOps
+ * pipelines)
  * or developers to verify that the application is running correctly.
  *
- * This controller belongs to the Controller layer of the application and does not
- * contain any business logic. Its sole responsibility is to handle HTTP requests
+ * This controller belongs to the Controller layer of the application and does
+ * not
+ * contain any business logic. Its sole responsibility is to handle HTTP
+ * requests
  * and return an appropriate response.
  *
  * The controller uses Spring WebFlux and returns reactive types in order to
@@ -41,13 +44,11 @@ public class HealthController {
      *
      * @return a Mono emitting a Map<String, String> representing the health status
      */
-    @GetMapping("/health")
+    @GetMapping({ "/health", "/" })
     public Mono<Map<String, String>> health() {
         return Mono.just(
                 Map.of(
                         "status", "UP",
-                        "message", "Application is running"
-                )
-        );
+                        "message", "Application is running"));
     }
 }
