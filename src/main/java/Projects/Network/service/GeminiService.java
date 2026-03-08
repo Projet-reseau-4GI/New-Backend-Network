@@ -20,9 +20,9 @@ public class GeminiService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public GeminiService(WebClient.Builder webClientBuilder,
-                         @Value("${gemini.api.key}") String apiKey,
-                         @Value("${gemini.model}") String model,
-                         @Value("${gemini.api.url}") String apiUrlTemplate) {
+            @Value("${gemini.api.key}") String apiKey,
+            @Value("${gemini.model}") String model,
+            @Value("${gemini.api.url}") String apiUrlTemplate) {
 
         this.webClient = webClientBuilder.build();
         this.apiUrl = apiUrlTemplate
@@ -39,27 +39,38 @@ public class GeminiService {
                 You are a strict OCR identity extraction engine for Cameroon documents (CNI, Passport, Driver License).
 
                 RULES:
-                - Return ONLY valid JSON.
+                - Return ONLY valid flat JSON.
                 - Use null for missing fields.
                 - Never return labels as values.
                 - Dates format: yyyy-MM-dd.
                 - documentType must be exactly: ID_CARD, PASSPORT, DRIVER_LICENSE.
 
-                Extract:
-                documentType, surname, givenNames, dateOfBirth, issueDate, expiryDate,
-                documentNumber, sex, height, placeOfBirth, occupation.
+                Return a single JSON object with EXACTLY these keys:
+                {
+                  "documentType": "...",
+                  "surname": "...",
+                  "givenNames": "...",
+                  "dateOfBirth": "...",
+                  "issueDate": "...",
+                  "expiryDate": "...",
+                  "documentNumber": "...",
+                  "sex": "...",
+                  "height": "...",
+                  "placeOfBirth": "...",
+                  "occupation": "..."
+                }
 
                 Raw OCR text:
                 """ + rawText;
 
         Map<String, Object> requestBody = Map.of(
-                "contents", new Object[]{
+                "generationConfig", Map.of("responseMimeType", "application/json"),
+                "contents", new Object[] {
                         Map.of("role", "user",
-                               "parts", new Object[]{
-                                       Map.of("text", prompt)
-                               })
-                }
-        );
+                                "parts", new Object[] {
+                                        Map.of("text", prompt)
+                                })
+                });
 
         return webClient.post()
                 .uri(apiUrl)
@@ -82,8 +93,8 @@ public class GeminiService {
 
             // Nettoyage blocs markdown éventuels
             text = text.replaceAll("```json", "")
-                       .replaceAll("```", "")
-                       .trim();
+                    .replaceAll("```", "")
+                    .trim();
 
             JsonNode json = objectMapper.readTree(text);
             json.fields().forEachRemaining(e -> {
