@@ -39,19 +39,6 @@ public class DocumentAnalysisService {
             DateTimeFormatter.ofPattern("d/MM/yyyy")
     };
 
-    public Mono<DocumentAnalysisResponse> analyzeDocument(UUID documentId) {
-        return documentRepository.findById(documentId)
-                .switchIfEmpty(Mono.error(new RuntimeException("Document not found")))
-                .flatMap(doc -> {
-                    Mono<String> frontMono = enhancedDocumentService.extractMarkdownText(doc.getMinioPath());
-                    Mono<String> backMono = doc.getBackMinioPath() != null
-                            ? enhancedDocumentService.extractMarkdownText(doc.getBackMinioPath())
-                            : Mono.just("");
-                    return Mono.zip(frontMono, backMono)
-                            .flatMap(tuple -> analyzeFull(tuple.getT1(), tuple.getT2()));
-                });
-    }
-
     public Mono<DocumentAnalysisResponse> analyzeFull(String front, String back) {
         String combined = front + "\n" + back;
         return geminiService.extractData(combined)

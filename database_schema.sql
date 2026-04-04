@@ -1,46 +1,34 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Table: users
-CREATE TABLE IF NOT EXISTS users (
-    user_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password VARCHAR(255) NOT NULL,
-    first_name VARCHAR(100),
-    last_name VARCHAR(100),
+-- Table: platforms
+CREATE TABLE IF NOT EXISTS platforms (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE,
+    api_key VARCHAR(255) UNIQUE NOT NULL,
+    otp_code VARCHAR(10),
+    otp_expiry TIMESTAMP WITH TIME ZONE,
+    active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    email_verified BOOLEAN DEFAULT FALSE
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Table: documents
 CREATE TABLE IF NOT EXISTS documents (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    platform_id BIGINT REFERENCES platforms(id),
     piece_type VARCHAR(50),
-    file_name VARCHAR(255),
-    file_size BIGINT,
-    minio_path VARCHAR(500),
-    back_minio_path VARCHAR(500),
-    user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
-    file_type VARCHAR(100),
-    upload_date TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP,
-    status VARCHAR(50)
+    status VARCHAR(20),
+    upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Table: email_verification_tokens
-CREATE TABLE IF NOT EXISTS email_verification_tokens (
-    token_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    token_hash VARCHAR(64) NOT NULL,
-    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    expiry_date TIMESTAMP WITH TIME ZONE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_email_verification_user_id ON email_verification_tokens(user_id);
-
--- Table: password_reset_tokens
-CREATE TABLE IF NOT EXISTS password_reset_tokens (
-    token_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    token VARCHAR(255) NOT NULL,
-    user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
-    expiry_date TIMESTAMP WITH TIME ZONE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    used BOOLEAN DEFAULT FALSE
+-- Table: verification_logs
+CREATE TABLE IF NOT EXISTS verification_logs (
+    id SERIAL PRIMARY KEY,
+    platform_id BIGINT REFERENCES platforms(id) ON DELETE CASCADE,
+    date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    doc_type VARCHAR(100),
+    status VARCHAR(50),
+    reason TEXT,
+    confidence DOUBLE PRECISION
 );

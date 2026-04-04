@@ -1,71 +1,76 @@
-GUIDE TECHNIQUE : UPLOAD DE DOCUMENTS ET SECURITE JWT
+# New-Backend-Network
 
-    PRESENTATION DU FLUX DE SECURITE Pour que l'utilisateur puisse uploader un document sans envoyer son ID manuellement, nous utilisons le jeton JWT. Le processus est le suivant :
+## Document Verification & Multi-Tenant Management System
 
-    Le client envoie le jeton dans le header Authorization.
+This project is a high-performance, reactive backend built with **Spring WebFlux** designed for B2B document verification. It features a multi-tenant architecture where organizational platforms can securely upload and analyze identity documents (ID Cards, Passports) using AI-powered extraction.
 
-    Le JwtFilter intercepte la requete et utilise JwtService pour valider le jeton.
+### 🚀 Key Features
 
-    L'identite de l'utilisateur est extraite et placee dans le contexte de securite de Spring (Principal).
+*   **Reactive Architecture**: Built on top of Project Reactor for non-blocking, high-concurrency document processing.
+*   **Multi-Tenancy (B2B)**: Native support for multiple platforms, each identified by a unique API Key.
+*   **Advanced Document Analysis**:
+    *   **OCR Integration**: Robust extraction of text from images and PDFs.
+    *   **AI-Powered Insights**: Uses **Google Gemini** to extract and validate structured data (Name, DOB, Expiry, etc.) from noisy OCR text.
+    *   **Cameroon ID Support**: Specialized logic for Cameroon identity documents.
+*   **Secure Storage**: Automated file uploads to Supabase/S3-compatible storage.
+*   **Platform Management**: Comprehensive admin APIs for platform lifecycle management and API key rotation.
 
-    Le DocumentController recupere l'ID utilisateur directement via l'annotation @AuthenticationPrincipal.
+### 🛠 Technical Stack
 
-    CORRECTIONS APPORTEES AU PROJET
+*   **Core**: Java 17+, Spring Boot 3, Spring WebFlux.
+*   **Persistence**: PostgreSQL with R2DBC (Reactive Relational Database Connectivity).
+*   **AI/ML**: Google Gemini (via Spring AI or custom integration).
+*   **Storage**: Supabase Storage.
+*   **Security**: API Key Authentication (`X-API-KEY`).
 
-2.1. Gestion de la Casse (Case Sensitivity) Le serveur est sensible a la casse pour les parametres multipart.
+### 🔒 Security Model
 
-    Erreur : Postman envoyait "piecetype" alors que le code attendait "pieceType".
+The system has moved from a user-centric JWT model to a **B2B Platform model**:
 
-    Correction : Les cles dans Postman et dans le code sont desormais synchronisees sur "pieceType".
+1.  **Admin Endpoints**: `/api/admin/**` (Management of platforms).
+2.  **Tenant Endpoints**: `/api/kernel/**` and core analysis APIs require a valid `X-API-KEY` header.
+3.  **Tenant Context**: The platform identity is automatically propagated through the reactive stream context.
 
-2.2. Resolution du NullPointerException L'objet "principal" etait null dans le controleur, provoquant une erreur 500.
+### 📖 API Reference
 
-    Cause : Le filtre de securite ne remplissait pas le contexte de Spring WebFlux.
+#### 1. Administration (Platform Management)
 
-    Solution : Creation de la classe JwtFilter et mise a jour de SecurityConfig pour activer l'authentification automatique a chaque requete.
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/admin/platforms` | Create a new tenant platform |
+| `GET` | `/api/admin/platforms` | List all registered platforms |
+| `POST` | `/api/admin/platforms/{id}/generate-key` | Rotate/Generate a new API key |
+| `POST` | `/api/admin/platforms/{id}/toggle-status` | Activate/Deactivate a platform |
 
-2.3. Restauration du AuthService La refactorisation du JwtService avait supprime la methode generateToken().
+#### 2. Document Analysis (Tenant API)
 
-    Solution : Re-implementation de generateToken() pour permettre la creation de jetons lors de la connexion (Login).
+**Endpoint**: `POST /api/documents/upload-analyze`
+**Headers**: `X-API-KEY: your_platform_api_key`
+**Body** (multipart/form-data):
+*   `frontFile`: (Binary) Front side of the ID document.
+*   `backFile`: (Binary, optional) Back side of the ID document.
+*   `pieceType`: (String, optional) Hint for the document type (e.g., `ID_CARD`, `PASSPORT`).
 
-    UTILISATION AVEC POSTMAN
+### ⚙️ Getting Started
 
-Etape 1 : Authentification
+#### Prerequisites
+*   Java 17 or higher.
+*   PostgreSQL (with PostGIS support suggested).
+*   Maven.
+*   Configured API keys for Gemini and Supabase in `application.properties`.
 
-    Methode : POST
+#### Local Setup
+1.  **Clone the repository**.
+2.  **Initialize the database**: Run `database_schema.sql` to create the necessary tables.
+3.  **Configure environment**: Update `src/main/resources/application.properties` with your credentials.
+4.  **Run the application**:
+    ```bash
+    mvn spring-boot:run
+    ```
 
-    URL : http://localhost:8080/api/auth/login
+### 📂 Project Structure
+*   `Projects.Network.controller`: Reactive REST controllers.
+*   `Projects.Network.service`: Business logic (Analysis, Storage, Platform management).
+*   `Projects.Network.config`: Security filters and reactive context helpers.
+*   `Projects.Network.repository`: R2DBC repositories for reactive persistence.
 
-    Action : Recuperer la valeur du "token" dans la reponse JSON.
-
-Etape 2 : Upload du document
-
-    Methode : POST
-
-    URL : http://localhost:8080/api/documents/upload
-
-    Header : Ajouter "Authorization" avec la valeur "Bearer VOTRE_TOKEN".
-
-    Body (selectionner form-data) :
-
-        Cle 1 : "file" (changer le type en "File" dans Postman et choisir un fichier).
-
-        Cle 2 : "pieceType" (type "Text", valeur : PASSPORT ou ID_CARD).
-
-    STRUCTURE DU CODE ET NORMES
-
-    Architecture : Le projet suit le modele Controller -> Service -> Repository.
-
-    Reactivite : Utilisation des types Mono et Flux (Project Reactor) pour assurer des performances optimales en environnement WebFlux.
-
-    Reponses API : Les succes retournent desormais un code HTTP 201 (Created) avec un message de confirmation JSON.
-
-    DEPENDANCES REQUISES Pour le bon fonctionnement des annotations et du JWT, les dependances suivantes doivent etre presentes dans le pom.xml :
-
-    spring-boot-starter-security
-
-    spring-boot-starter-webflux
-
-    jjwt-api / jjwt-impl / jjwt-jackson
-
-    jakarta.annotation-api

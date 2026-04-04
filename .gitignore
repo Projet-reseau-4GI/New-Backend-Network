@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+KSM_Kernel_Layer/
+database_schema.sql

@@ -44,7 +44,7 @@ public class HealthController {
      *
      * @return a Mono emitting a Map<String, String> representing the health status
      */
-    @GetMapping({ "/health", "/" })
+    @GetMapping("/health")
     public Mono<Map<String, String>> health() {
         return Mono.just(
                 Map.of(
