@@ -37,6 +37,12 @@ public class DocumentAnalysisResponse {
     private String documentNumber;
 
     /**
+     * Country that issued the document.
+     */
+    @NotBlank(message = "Le pays d'émission est requis")
+    private String issuingCountry;
+
+    /**
      * Full name of the document holder.
      */
     @NotBlank(message = "Le nom du titulaire est requis")

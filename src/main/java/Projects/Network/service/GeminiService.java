@@ -36,7 +36,7 @@ public class GeminiService {
         }
 
         String prompt = """
-                You are a strict OCR identity extraction engine for Cameroon documents (CNI, Passport, Driver License).
+                You are a strict OCR identity extraction engine for CEMAC zone documents (Cameroon, Chad, Congo, DRC, Gabon, Central African Republic).
 
                 RULES:
                 - Return ONLY valid flat JSON.
@@ -48,6 +48,7 @@ public class GeminiService {
                 Return a single JSON object with EXACTLY these keys:
                 {
                   "documentType": "...",
+                  "issuingCountry": "...",
                   "surname": "...",
                   "givenNames": "...",
                   "dateOfBirth": "...",
@@ -61,7 +62,8 @@ public class GeminiService {
                 }
 
                 Raw OCR text:
-                """ + rawText;
+                """
+                + rawText;
 
         Map<String, Object> requestBody = Map.of(
                 "generationConfig", Map.of("responseMimeType", "application/json"),
