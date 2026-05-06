@@ -53,6 +53,7 @@ public class DocumentAnalysisService {
         // Use Gemini fields as primary source
         Map<String, String> fields = new HashMap<>(geminiFields);
         String docType = fields.getOrDefault("documentType", "UNKNOWN");
+        String issuingCountry = fields.getOrDefault("issuingCountry", "UNKNOWN");
 
         // CLEANUP: Remove "null" strings that Gemini might return
         fields.entrySet()
@@ -71,8 +72,15 @@ public class DocumentAnalysisService {
         boolean isExpired = expiryDate != null && expiryDate.isBefore(LocalDate.now());
         boolean hasDocNumber = fields.get("documentNumber") != null;
 
-        // Primary user rule: Document is valid if not expired and has basic info
-        boolean valid = !isExpired && namesValid && !docType.equals("UNKNOWN") && hasDocNumber;
+        // Nomenclature Check
+        boolean isNomenclatureValid = validateNomenclature(
+                issuingCountry,
+                docType,
+                fields.get("documentNumber"));
+
+        // Primary user rule: Document is valid if not expired and has basic info AND
+        // nomenclature is valid
+        boolean valid = !isExpired && namesValid && !docType.equals("UNKNOWN") && hasDocNumber && isNomenclatureValid;
 
         StringBuilder msg = new StringBuilder();
         if (valid) {
@@ -84,6 +92,8 @@ public class DocumentAnalysisService {
                 msg.append("Noms manquants. ");
             if (!hasDocNumber)
                 msg.append("Numéro manquant. ");
+            else if (!isNomenclatureValid)
+                msg.append("Format du numéro invalide pour le pays (").append(issuingCountry).append("). ");
             if (isExpired)
                 msg.append("Document expiré. ");
             if (msg.length() == 0)
@@ -95,11 +105,15 @@ public class DocumentAnalysisService {
         double confidence = 0.9; // We trust Gemini
         if (!namesValid || !hasDocNumber)
             confidence = 0.5;
+        else if (!isNomenclatureValid)
+            confidence = 0.6; // Has number but failed format rules
 
-        log.info("=== Analysis Complete: type={}, confidence={}, valid={} ===", docType, confidence, valid);
+        log.info("=== Analysis Complete: type={}, country={}, confidence={}, valid={} ===", docType, issuingCountry,
+                confidence, valid);
 
         DocumentAnalysisResponse response = DocumentAnalysisResponse.builder()
                 .documentType(docType)
+                .issuingCountry(issuingCountry)
                 .documentNumber(fields.get("documentNumber"))
                 .holderName(holderName)
                 .dateOfBirth(birthDate)
@@ -137,7 +151,7 @@ public class DocumentAnalysisService {
         Map<String, String> add = new LinkedHashMap<>();
         // Filter out fields already present in the main response
         Set<String> topLevel = Set.of("surname", "givenNames", "documentNumber", "dateOfBirth", "issueDate",
-                "expiryDate", "expirationDate", "documentType");
+                "expiryDate", "expirationDate", "documentType", "issuingCountry");
         fields.forEach((k, v) -> {
             if (v != null && !v.isEmpty() && !topLevel.contains(k))
                 add.put(k, v);
@@ -156,5 +170,44 @@ public class DocumentAnalysisService {
             }
         }
         return null;
+    }
+
+    private boolean validateNomenclature(String country, String docType, String documentNumber) {
+        if (documentNumber == null || documentNumber.isBlank()) {
+            return false;
+        }
+        if (country == null || country.equalsIgnoreCase("UNKNOWN")) {
+            // Cannot strictly validate nomenclature without country, but ensure it exists
+            return documentNumber.length() >= 5;
+        }
+
+        String normalizedCountry = country.toLowerCase().trim();
+        String normalizedNumber = documentNumber.replaceAll("[^a-zA-Z0-9]", ""); // keep only alphanumerics
+
+        // Specific Rules for CEMAC
+        if (normalizedCountry.contains("gabon")) {
+            // Gabon: NIP is typically 14 alphanumerics
+            return normalizedNumber.length() == 14;
+        } else if (normalizedCountry.contains("cameroun") || normalizedCountry.contains("cameroon")) {
+            // Cameroon standard ranges
+            if ("ID_CARD".equals(docType)) {
+                return normalizedNumber.length() >= 9 && normalizedNumber.length() <= 17;
+            } else if ("PASSPORT".equals(docType)) {
+                return normalizedNumber.length() >= 7;
+            }
+            return normalizedNumber.length() >= 5;
+        } else if (normalizedCountry.contains("tchad") || normalizedCountry.contains("chad")) {
+            // Tchad: NNI validations (standard robust)
+            return normalizedNumber.length() >= 5 && normalizedNumber.length() <= 20;
+        } else if (normalizedCountry.contains("congo")) {
+            // Congo (RDC or Brazzaville)
+            return normalizedNumber.length() >= 5 && normalizedNumber.length() <= 25;
+        } else if (normalizedCountry.contains("centrafrique") || normalizedCountry.contains("central african")) {
+            // RCA validations
+            return normalizedNumber.length() >= 5 && normalizedNumber.length() <= 20;
+        }
+
+        // Fallback for other valid string countries
+        return documentNumber.length() >= 5 && documentNumber.length() <= 30;
     }
 }
