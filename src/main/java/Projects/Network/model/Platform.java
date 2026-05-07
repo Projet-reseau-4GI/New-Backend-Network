@@ -30,22 +30,40 @@ public class Platform {
     @Column("email")
     private String email;
 
+    /** BCrypt-hashed password for portal login */
+    @Column("password_hash")
+    private String passwordHash;
+
     @Column("api_key")
     private String apiKey;
 
+    /** OTP code sent by email for email verification or API key regeneration */
     @Column("otp_code")
     private String otpCode;
 
     @Column("otp_expiry")
-    private java.time.LocalDateTime otpExpiry;
+    private LocalDateTime otpExpiry;
+
+    /** Whether the platform's email has been verified */
+    @Column("email_verified")
+    private Boolean emailVerified;
+
+    /** Code for password reset flow */
+    @Column("reset_code")
+    private String resetCode;
+
+    @Column("reset_code_expiry")
+    private LocalDateTime resetCodeExpiry;
+
+    @Column("reset_attempts")
+    private Integer resetAttempts;
 
     @Column("active")
     private Boolean active;
 
     @Column("created_at")
-    private java.time.LocalDateTime createdAt;
+    private LocalDateTime createdAt;
 
     @Column("updated_at")
-    private java.time.LocalDateTime updatedAt;
-
+    private LocalDateTime updatedAt;
 }

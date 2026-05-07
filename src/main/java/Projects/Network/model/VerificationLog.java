@@ -34,7 +34,7 @@ public class VerificationLog {
     private String docType;
 
     /**
-     * Status of the verification, e.g., ACCEPTED, REJECTED
+     * Status of the verification: ACCEPTED or REJECTED
      */
     @Column("status")
     private String status;
@@ -50,4 +50,10 @@ public class VerificationLog {
      */
     @Column("confidence")
     private Double confidence;
+
+    /**
+     * Time taken to process the document in milliseconds.
+     */
+    @Column("processing_time_ms")
+    private Integer processingTimeMs;
 }
