@@ -40,27 +40,11 @@ CREATE TABLE IF NOT EXISTS verification_logs (
 );
 
 -- Migration: add missing columns if tables already exist
-DO $$
-BEGIN
-    -- platforms new columns
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='platforms' AND column_name='password_hash') THEN
-        ALTER TABLE platforms ADD COLUMN password_hash VARCHAR(255);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='platforms' AND column_name='email_verified') THEN
-        ALTER TABLE platforms ADD COLUMN email_verified BOOLEAN DEFAULT FALSE;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='platforms' AND column_name='reset_code') THEN
-        ALTER TABLE platforms ADD COLUMN reset_code VARCHAR(10);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='platforms' AND column_name='reset_code_expiry') THEN
-        ALTER TABLE platforms ADD COLUMN reset_code_expiry TIMESTAMP WITH TIME ZONE;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='platforms' AND column_name='reset_attempts') THEN
-        ALTER TABLE platforms ADD COLUMN reset_attempts INTEGER DEFAULT 0;
-    END IF;
-    -- verification_logs new columns
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='verification_logs' AND column_name='processing_time_ms') THEN
-        ALTER TABLE verification_logs ADD COLUMN processing_time_ms INTEGER;
-    END IF;
-END
-$$;
+-- (Using IF NOT EXISTS for columns, supported in modern PostgreSQL)
+ALTER TABLE platforms ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+ALTER TABLE platforms ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE platforms ADD COLUMN IF NOT EXISTS reset_code VARCHAR(10);
+ALTER TABLE platforms ADD COLUMN IF NOT EXISTS reset_code_expiry TIMESTAMP WITH TIME ZONE;
+ALTER TABLE platforms ADD COLUMN IF NOT EXISTS reset_attempts INTEGER DEFAULT 0;
+
+ALTER TABLE verification_logs ADD COLUMN IF NOT EXISTS processing_time_ms INTEGER;
