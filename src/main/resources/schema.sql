@@ -48,3 +48,9 @@ ALTER TABLE platforms ADD COLUMN IF NOT EXISTS reset_code_expiry TIMESTAMP WITH 
 ALTER TABLE platforms ADD COLUMN IF NOT EXISTS reset_attempts INTEGER DEFAULT 0;
 
 ALTER TABLE verification_logs ADD COLUMN IF NOT EXISTS processing_time_ms INTEGER;
+ALTER TABLE verification_logs ADD COLUMN IF NOT EXISTS document_number VARCHAR(100);
+ALTER TABLE verification_logs ADD COLUMN IF NOT EXISTS holder_name VARCHAR(255);
+ALTER TABLE verification_logs ADD COLUMN IF NOT EXISTS date_of_birth VARCHAR(50);
+ALTER TABLE verification_logs ADD COLUMN IF NOT EXISTS issue_date VARCHAR(50);
+ALTER TABLE verification_logs ADD COLUMN IF NOT EXISTS expiry_date VARCHAR(50);
+ALTER TABLE verification_logs ADD COLUMN IF NOT EXISTS additional_fields TEXT;

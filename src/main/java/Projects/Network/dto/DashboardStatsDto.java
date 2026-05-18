@@ -13,6 +13,8 @@ public class DashboardStatsDto {
     private Long totalVerifications;
     private Long successCount;
     private Long failureCount;
+    private Long pendingCount;
+    private Long totalUsers;
     private Double avgProcessingTimeMs;
     private Long totalApiTokensCreated;
     /** Period label e.g. "7d", "30d", "90d", "custom" */
