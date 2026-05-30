@@ -1,9 +1,9 @@
-package Projects.Network.service;
+package com.yowyob.flashshop.service;
 
-import Projects.Network.config.ReactiveTenantContext;
-import Projects.Network.model.VerificationLog;
-import Projects.Network.repository.VerificationLogRepository;
-import Projects.Network.dto.DocumentAnalysisResponse;
+import com.yowyob.flashshop.config.ReactiveTenantContext;
+import com.yowyob.flashshop.model.VerificationLog;
+import com.yowyob.flashshop.repository.VerificationLogRepository;
+import com.yowyob.flashshop.dto.DocumentAnalysisResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import lombok.RequiredArgsConstructor;
@@ -46,25 +46,25 @@ public class VerificationLoggingService {
                     }
 
                     VerificationLog logEntity = VerificationLog.builder()
-                            .platformId(platform.getId())
+                            .platform_id(platform.getId())
                             .date(LocalDateTime.now())
-                            .docType(docType)
+                            .doc_type(docType)
                             .status(status)
                             .reason(reason)
                             .confidence(confidence)
-                            .processingTimeMs(processingTimeMs)
-                            .documentNumber(response != null ? response.getDocumentNumber() : null)
-                            .holderName(response != null ? response.getHolderName() : null)
-                            .dateOfBirth(response != null && response.getDateOfBirth() != null
+                            .processing_time_ms(processingTimeMs)
+                            .document_number(response != null ? response.getDocumentNumber() : null)
+                            .holder_name(response != null ? response.getHolderName() : null)
+                            .date_of_birth(response != null && response.getDateOfBirth() != null
                                     ? response.getDateOfBirth().toString()
                                     : null)
-                            .issueDate(response != null && response.getIssueDate() != null
+                            .issue_date(response != null && response.getIssueDate() != null
                                     ? response.getIssueDate().toString()
                                     : null)
-                            .expiryDate(response != null && response.getExpirationDate() != null
+                            .expiry_date(response != null && response.getExpirationDate() != null
                                     ? response.getExpirationDate().toString()
                                     : null)
-                            .additionalFields(additionalFieldsJson)
+                            .additional_fields(additionalFieldsJson)
                             .build();
                     return verificationLogRepository.save(logEntity);
                 });

@@ -1,6 +1,7 @@
-package Projects.Network.service;
+package com.yowyob.flashshop.service;
 
-import Projects.Network.dto.*;
+import com.yowyob.flashshop.dto.*;
+import com.yowyob.flashshop.repository.VerificationLogRepository;
 import com.lowagie.text.*;
 import com.lowagie.text.Font;
 import com.lowagie.text.Rectangle;
@@ -19,20 +20,21 @@ import java.util.List;
 /**
  * Service responsible for generating professional CSV and PDF exports
  * of the VerifID dashboard data.
+ *
+ * @author Thomas Djotio Ndié
+ * @version 0.1
+ * @since 2026-05-27
  */
-import Projects.Network.repository.VerificationLogRepository;
-import Projects.Network.model.VerificationLog;
-
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class DashboardExportService {
 
-    private final MetricsService metricsService;
-    private final VerificationLogRepository verificationLogRepository;
+    private final MetricsService metrics_service;
+    private final VerificationLogRepository verification_log_repository;
 
-    private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
-    private static final DateTimeFormatter DATE_LABEL = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
+    private static final DateTimeFormatter DTF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter DATE_LABEL = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     // ─────────────────────────────────────────────────────────────────────────
     // CSV EXPORT
@@ -40,11 +42,16 @@ public class DashboardExportService {
 
     /**
      * Generates a CSV byte array containing all recent verification logs.
-     * Columns: ID, Date, Type de document, Statut, Confiance (%), Temps (ms),
-     * Raison du rejet
+     * Columns: ID, Platform, Date, Document Type, Status, Confidence (%),
+     * Processing Time (ms), Rejection Reason
+     *
+     * @param platform_id optional identifier to filter by platform
+     * @param from        optional start date for filtering
+     * @param to          optional end date for filtering
+     * @return a Mono containing the CSV byte array
      */
-    public Mono<byte[]> exportCsv(Long platformId, LocalDateTime from, LocalDateTime to) {
-        return metricsService.getRecentVerifications(platformId)
+    public Mono<byte[]> exportCsv(Long platform_id, LocalDateTime from, LocalDateTime to) {
+        return metrics_service.getRecentVerifications(platform_id)
                 .collectList()
                 .flatMap(rows -> {
                     StringBuilder sb = new StringBuilder();
@@ -52,7 +59,7 @@ public class DashboardExportService {
                     sb.append('\uFEFF');
                     // Header
                     sb.append(
-                            "ID,Plateforme,Date,Type de document,Statut,Confiance (%),Temps de traitement (ms),Raison du rejet\n");
+                            "ID,Platform,Date,Document Type,Status,Confidence (%),Processing Time (ms),Rejection Reason\n");
                     // Rows
                     for (RecentVerificationDto r : rows) {
                         sb.append(csv(r.getId()))
@@ -93,19 +100,24 @@ public class DashboardExportService {
     /**
      * Generates a professional multi-section PDF report.
      * Sections:
-     * 1. Cover header (logo placeholder + title + generation date)
+     * 1. Cover header (title + generation date)
      * 2. KPI summary cards
      * 3. Status distribution table
      * 4. Document type breakdown table
      * 5. Recent verifications table (last 10)
-     * 6. Footer with page numbers
+     *
+     * @param platform_id identifier to filter by platform
+     * @param from        start date for filtering
+     * @param to          end date for filtering
+     * @param period      label for the reporting period
+     * @return a Mono containing the PDF byte array
      */
-    public Mono<byte[]> exportPdf(Long platformId, LocalDateTime from, LocalDateTime to, String period) {
+    public Mono<byte[]> exportPdf(Long platform_id, LocalDateTime from, LocalDateTime to, String period) {
         return Mono.zip(
-                metricsService.getDashboardStats(platformId, from, to, period),
-                metricsService.getStatusDistribution(platformId, from, to).collectList(),
-                metricsService.getDocTypeBreakdown(platformId, from, to).collectList(),
-                metricsService.getRecentVerifications(platformId).collectList())
+                metrics_service.getDashboardStats(platform_id, from, to, period),
+                metrics_service.getStatusDistribution(platform_id, from, to).collectList(),
+                metrics_service.getDocTypeBreakdown(platform_id, from, to).collectList(),
+                metrics_service.getRecentVerifications(platform_id).collectList())
                 .map(tuple -> buildPdf(tuple.getT1(), tuple.getT2(), tuple.getT3(), tuple.getT4(), period));
     }
 
@@ -130,25 +142,25 @@ public class DashboardExportService {
         addCoverHeader(doc, period);
 
         // ── 2. KPI SUMMARY ──────────────────────────────────────────────────
-        addSectionTitle(doc, "Indicateurs clés de performance");
+        addSectionTitle(doc, "Key Performance Indicators");
         addKpiTable(doc, stats);
 
         doc.add(Chunk.NEWLINE);
 
         // ── 3. STATUS DISTRIBUTION ──────────────────────────────────────────
-        addSectionTitle(doc, "Répartition par statut");
+        addSectionTitle(doc, "Distribution by Status");
         addStatusTable(doc, distribution);
 
         doc.add(Chunk.NEWLINE);
 
         // ── 4. DOC TYPE BREAKDOWN ────────────────────────────────────────────
-        addSectionTitle(doc, "Analyse par type de document");
+        addSectionTitle(doc, "Analysis by Document Type");
         addDocTypeTable(doc, docTypes);
 
         doc.add(Chunk.NEWLINE);
 
         // ── 5. RECENT VERIFICATIONS ──────────────────────────────────────────
-        addSectionTitle(doc, "10 dernières vérifications");
+        addSectionTitle(doc, "Last 10 Verifications");
         addRecentsTable(doc, recents);
 
         doc.close();
@@ -156,12 +168,15 @@ public class DashboardExportService {
         return baos.toByteArray();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // SINGLE VERIFICATION PDF EXPORT
-    // ─────────────────────────────────────────────────────────────────────────
-    public Mono<byte[]> exportSingleVerificationPdf(Long verificationId) {
-        return verificationLogRepository.findById(verificationId)
-                .map(log -> {
+    /**
+     * Generates a detailed PDF report for a single verification.
+     *
+     * @param verification_id the ID of the verification log
+     * @return a Mono containing the PDF byte array
+     */
+    public Mono<byte[]> exportSingleVerificationPdf(Long verification_id) {
+        return verification_log_repository.findById(verification_id)
+                .map(vlog -> {
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     Document doc = new Document(PageSize.A4, 36, 36, 60, 50);
                     PdfWriter writer = PdfWriter.getInstance(doc, baos);
@@ -169,44 +184,44 @@ public class DashboardExportService {
                     doc.open();
 
                     try {
-                        addCoverHeader(doc, "Rapport Spécifique");
+                        addCoverHeader(doc, "Specific Report");
 
-                        addSectionTitle(doc, "Détails de la Vérification #" + log.getId());
+                        addSectionTitle(doc, "Verification Details #" + vlog.getId());
 
                         PdfPTable table = new PdfPTable(2);
                         table.setWidthPercentage(100);
-                        table.setWidths(new float[] { 1.5f, 3f });
+                        table.setWidths(new float[] { 2.0f, 3f });
 
-                        addDetailRow(table, "Statut", log.getStatus());
-                        addDetailRow(table, "Type", log.getDocType());
-                        addDetailRow(table, "Confiance",
-                                log.getConfidence() != null ? String.format("%.1f%%", log.getConfidence() * 100)
+                        addDetailRow(table, "Status", vlog.getStatus());
+                        addDetailRow(table, "Type", vlog.getDocType());
+                        addDetailRow(table, "Confidence",
+                                vlog.getConfidence() != null ? String.format("%.1f%%", vlog.getConfidence() * 100)
                                         : "N/A");
-                        addDetailRow(table, "Temps de traitement (ms)",
-                                log.getProcessingTimeMs() != null ? log.getProcessingTimeMs() + " ms" : "N/A");
+                        addDetailRow(table, "Processing Time (ms)",
+                                vlog.getProcessingTimeMs() != null ? vlog.getProcessingTimeMs() + " ms" : "N/A");
 
-                        addDetailRow(table, "Numéro de document", log.getDocumentNumber());
-                        addDetailRow(table, "Nom du titulaire", log.getHolderName());
-                        addDetailRow(table, "Date de naissance", log.getDateOfBirth());
-                        addDetailRow(table, "Date d'émission", log.getIssueDate());
-                        addDetailRow(table, "Date d'expiration", log.getExpiryDate());
+                        addDetailRow(table, "Document Number", vlog.getDocumentNumber());
+                        addDetailRow(table, "Holder Name", vlog.getHolderName());
+                        addDetailRow(table, "Date of Birth", vlog.getDateOfBirth());
+                        addDetailRow(table, "Issue Date", vlog.getIssueDate());
+                        addDetailRow(table, "Expiry Date", vlog.getExpiryDate());
 
-                        if (log.getAdditionalFields() != null) {
-                            addDetailRow(table, "Champs Additionnels", log.getAdditionalFields());
+                        if (vlog.getAdditionalFields() != null) {
+                            addDetailRow(table, "Additional Fields", vlog.getAdditionalFields());
                         }
 
                         doc.add(table);
 
-                        if (log.getReason() != null) {
+                        if (vlog.getReason() != null) {
                             doc.add(Chunk.NEWLINE);
-                            addSectionTitle(doc, "Raison du rejet");
-                            Paragraph reasonP = new Paragraph(log.getReason(),
+                            addSectionTitle(doc, "Rejection Reason");
+                            Paragraph reason_p = new Paragraph(vlog.getReason(),
                                     FontFactory.getFont(FontFactory.HELVETICA, 10, Color.DARK_GRAY));
-                            doc.add(reasonP);
+                            doc.add(reason_p);
                         }
 
                     } catch (DocumentException e) {
-                        e.printStackTrace();
+                        log.error("Failed to generate single verification PDF", e);
                     } finally {
                         doc.close();
                     }
@@ -215,16 +230,16 @@ public class DashboardExportService {
     }
 
     private void addDetailRow(PdfPTable table, String label, String value) {
-        Font fLabel = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, COLOR_PRIMARY);
-        Font fValue = FontFactory.getFont(FontFactory.HELVETICA, 10, Color.DARK_GRAY);
-        PdfPCell cLabel = new PdfPCell(new Phrase(label, fLabel));
-        PdfPCell cValue = new PdfPCell(new Phrase(value != null ? value : "N/A", fValue));
-        cLabel.setPadding(8);
-        cValue.setPadding(8);
-        cLabel.setBorderColor(COLOR_BORDER);
-        cValue.setBorderColor(COLOR_BORDER);
-        table.addCell(cLabel);
-        table.addCell(cValue);
+        Font f_label = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, COLOR_PRIMARY);
+        Font f_value = FontFactory.getFont(FontFactory.HELVETICA, 10, Color.DARK_GRAY);
+        PdfPCell c_label = new PdfPCell(new Phrase(label, f_label));
+        PdfPCell c_value = new PdfPCell(new Phrase(value != null ? value : "N/A", f_value));
+        c_label.setPadding(8);
+        c_value.setPadding(8);
+        c_label.setBorderColor(COLOR_BORDER);
+        c_value.setBorderColor(COLOR_BORDER);
+        table.addCell(c_label);
+        table.addCell(c_value);
     }
 
     // ─── Cover header ────────────────────────────────────────────────────────
@@ -239,22 +254,22 @@ public class DashboardExportService {
         cell.setPadding(18);
         cell.setBorder(Rectangle.NO_BORDER);
 
-        Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 22, Color.WHITE);
-        Font subFont = FontFactory.getFont(FontFactory.HELVETICA, 11, new Color(160, 180, 255));
+        Font title_font = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 22, Color.WHITE);
+        Font sub_font = FontFactory.getFont(FontFactory.HELVETICA, 11, new Color(160, 180, 255));
 
-        Paragraph title = new Paragraph("VerifID — Rapport d'analyse", titleFont);
+        Paragraph title = new Paragraph("VerifID — Analysis Report", title_font);
         title.setAlignment(Element.ALIGN_CENTER);
 
-        String periodLabel = period != null ? switch (period) {
-            case "7d" -> "7 derniers jours";
-            case "30d" -> "30 derniers jours";
-            case "90d" -> "90 derniers jours";
-            default -> "Période personnalisée";
-        } : "Toutes périodes";
+        String period_label = period != null ? switch (period) {
+            case "7d" -> "Last 7 days";
+            case "30d" -> "Last 30 days";
+            case "90d" -> "Last 90 days";
+            default -> "Custom period";
+        } : "All periods";
 
         Paragraph sub = new Paragraph(
-                "Généré le " + LocalDateTime.now().format(DTF) + "   •   Période : " + periodLabel,
-                subFont);
+                "Generated on " + LocalDateTime.now().format(DTF) + "   •   Period: " + period_label,
+                sub_font);
         sub.setAlignment(Element.ALIGN_CENTER);
 
         cell.addElement(title);
@@ -277,11 +292,11 @@ public class DashboardExportService {
         sep.setWidthPercentage(100);
         sep.setSpacingBefore(0);
         sep.setSpacingAfter(6);
-        PdfPCell sepCell = new PdfPCell();
-        sepCell.setFixedHeight(2f);
-        sepCell.setBackgroundColor(COLOR_SECONDARY);
-        sepCell.setBorder(Rectangle.NO_BORDER);
-        sep.addCell(sepCell);
+        PdfPCell sep_cell = new PdfPCell();
+        sep_cell.setFixedHeight(2f);
+        sep_cell.setBackgroundColor(COLOR_SECONDARY);
+        sep_cell.setBorder(Rectangle.NO_BORDER);
+        sep.addCell(sep_cell);
         doc.add(p);
         doc.add(sep);
         doc.add(Chunk.NEWLINE);
@@ -294,20 +309,20 @@ public class DashboardExportService {
         table.setWidthPercentage(100);
         table.setSpacingAfter(8);
 
-        addKpiCell(table, "Total vérifications",
+        addKpiCell(table, "Total Verifications",
                 String.valueOf(stats.getTotalVerifications()), COLOR_PRIMARY);
-        addKpiCell(table, "Acceptées",
+        addKpiCell(table, "Accepted",
                 String.valueOf(stats.getSuccessCount()), COLOR_ACCEPTED);
-        addKpiCell(table, "Rejetées",
+        addKpiCell(table, "Rejected",
                 String.valueOf(stats.getFailureCount()), COLOR_REJECTED);
-        addKpiCell(table, "Temps moyen (ms)",
+        addKpiCell(table, "Avg Time (ms)",
                 stats.getAvgProcessingTimeMs() != null
                         ? String.format("%.0f ms", stats.getAvgProcessingTimeMs())
                         : "N/A",
                 COLOR_SECONDARY);
-        addKpiCell(table, "Tokens API actifs",
+        addKpiCell(table, "Active API Tokens",
                 String.valueOf(stats.getTotalApiTokensCreated()), COLOR_PRIMARY);
-        addKpiCell(table, "Taux de succès",
+        addKpiCell(table, "Success Rate",
                 stats.getTotalVerifications() != null && stats.getTotalVerifications() > 0
                         ? String.format("%.1f%%",
                                 (stats.getSuccessCount() * 100.0) / stats.getTotalVerifications())
@@ -317,18 +332,18 @@ public class DashboardExportService {
         doc.add(table);
     }
 
-    private void addKpiCell(PdfPTable table, String label, String value, Color accentColor) {
+    private void addKpiCell(PdfPTable table, String label, String value, Color accent_color) {
         PdfPCell cell = new PdfPCell();
         cell.setPadding(12);
         cell.setBorderColor(COLOR_BORDER);
         cell.setBorderWidth(1);
         cell.setBackgroundColor(Color.WHITE);
 
-        Font labelFont = FontFactory.getFont(FontFactory.HELVETICA, 9, new Color(100, 100, 120));
-        Font valueFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20, accentColor);
+        Font label_font = FontFactory.getFont(FontFactory.HELVETICA, 9, new Color(100, 100, 120));
+        Font value_font = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 20, accent_color);
 
-        cell.addElement(new Paragraph(label, labelFont));
-        Paragraph val = new Paragraph(value, valueFont);
+        cell.addElement(new Paragraph(label, label_font));
+        Paragraph val = new Paragraph(value, value_font);
         val.setSpacingBefore(4);
         cell.addElement(val);
         table.addCell(cell);
@@ -342,15 +357,15 @@ public class DashboardExportService {
         table.setWidths(new float[] { 3f, 2f, 2f });
         table.setHorizontalAlignment(Element.ALIGN_LEFT);
 
-        addTableHeader(table, new String[] { "Statut", "Nombre", "Pourcentage" });
+        addTableHeader(table, new String[] { "Status", "Count", "Percentage" });
 
         boolean even = false;
         for (StatusDistributionDto r : rows) {
             Color bg = even ? COLOR_ROW_EVEN : Color.WHITE;
-            Color statusColor = "ACCEPTED".equals(r.getStatus()) ? COLOR_ACCEPTED : COLOR_REJECTED;
-            String label = "ACCEPTED".equals(r.getStatus()) ? "✔ Accepté" : "✘ Rejeté";
+            Color status_color = "ACCEPTED".equals(r.getStatus()) ? COLOR_ACCEPTED : COLOR_REJECTED;
+            String label = "ACCEPTED".equals(r.getStatus()) ? "✔ Accepted" : "✘ Rejected";
 
-            addCell(table, label, FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, statusColor), bg);
+            addCell(table, label, FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10, status_color), bg);
             addCell(table, String.valueOf(r.getCount()),
                     FontFactory.getFont(FontFactory.HELVETICA, 10, Color.DARK_GRAY), bg);
             addCell(table,
@@ -369,7 +384,7 @@ public class DashboardExportService {
         table.setWidths(new float[] { 3f, 1.5f, 1.5f, 1.5f, 2f });
 
         addTableHeader(table, new String[] {
-                "Type de document", "Total", "Acceptés", "Rejetés", "Taux de succès" });
+                "Document Type", "Total", "Accepted", "Rejected", "Success Rate" });
 
         boolean even = false;
         for (DocTypeBreakdownDto r : rows) {
@@ -382,9 +397,9 @@ public class DashboardExportService {
             addCell(table, String.valueOf(r.getSuccessCount()), base, bg);
             addCell(table, String.valueOf(r.getFailureCount()), base, bg);
             double rate = r.getSuccessRate() != null ? r.getSuccessRate() : 0;
-            Color rateColor = rate >= 75 ? COLOR_ACCEPTED : rate >= 50 ? new Color(200, 130, 0) : COLOR_REJECTED;
+            Color rate_color = rate >= 75 ? COLOR_ACCEPTED : rate >= 50 ? new Color(200, 130, 0) : COLOR_REJECTED;
             addCell(table, String.format("%.1f%%", rate),
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, rateColor), bg);
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, rate_color), bg);
             even = !even;
         }
         doc.add(table);
@@ -398,21 +413,21 @@ public class DashboardExportService {
         table.setWidths(new float[] { 2.5f, 2.5f, 2f, 1.5f, 1.5f });
 
         addTableHeader(table, new String[] {
-                "Date & Heure", "Type de document", "Statut", "Confiance", "Temps (ms)" });
+                "Date & Time", "Document Type", "Status", "Confidence", "Time (ms)" });
 
         boolean even = false;
         for (RecentVerificationDto r : rows) {
             Color bg = even ? COLOR_ROW_EVEN : Color.WHITE;
             Font base = FontFactory.getFont(FontFactory.HELVETICA, 8, Color.DARK_GRAY);
             boolean accepted = "ACCEPTED".equals(r.getStatus());
-            Color statusColor = accepted ? COLOR_ACCEPTED : COLOR_REJECTED;
-            String statusLabel = accepted ? "✔ Accepté" : "✘ Rejeté";
+            Color status_color = accepted ? COLOR_ACCEPTED : COLOR_REJECTED;
+            String status_label = accepted ? "✔ Accepted" : "✘ Rejected";
 
             addCell(table,
                     r.getDate() != null ? r.getDate().format(DATE_LABEL) : "-", base, bg);
             addCell(table, r.getDocType() != null ? r.getDocType() : "-", base, bg);
-            addCell(table, statusLabel,
-                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, statusColor), bg);
+            addCell(table, status_label,
+                    FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8, status_color), bg);
             addCell(table, r.getConfidence() != null
                     ? String.format("%.1f%%", r.getConfidence() * 100)
                     : "-", base, bg);
@@ -427,9 +442,9 @@ public class DashboardExportService {
     // ─── Shared helpers ───────────────────────────────────────────────────────
 
     private void addTableHeader(PdfPTable table, String[] headers) {
-        Font hFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, Color.WHITE);
+        Font h_font = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, Color.WHITE);
         for (String h : headers) {
-            PdfPCell cell = new PdfPCell(new Phrase(h, hFont));
+            PdfPCell cell = new PdfPCell(new Phrase(h, h_font));
             cell.setBackgroundColor(COLOR_HEADER_BG);
             cell.setPadding(7);
             cell.setBorderColor(COLOR_BORDER);
@@ -454,16 +469,16 @@ public class DashboardExportService {
         @Override
         public void onEndPage(PdfWriter writer, Document document) {
             PdfContentByte cb = writer.getDirectContent();
-            Font footerFont = FontFactory.getFont(FontFactory.HELVETICA, 8, new Color(150, 150, 170));
+            Font footer_font = FontFactory.getFont(FontFactory.HELVETICA, 8, new Color(150, 150, 170));
 
             // Left: branding
             ColumnText.showTextAligned(cb, Element.ALIGN_LEFT,
-                    new Phrase("VerifID — Rapport confidentiel", footerFont),
+                    new Phrase("VerifID — Confidential Report", footer_font),
                     document.leftMargin(), document.bottomMargin() - 10, 0);
 
             // Right: page number
             ColumnText.showTextAligned(cb, Element.ALIGN_RIGHT,
-                    new Phrase("Page " + writer.getPageNumber(), footerFont),
+                    new Phrase("Page " + writer.getPageNumber(), footer_font),
                     document.right(), document.bottomMargin() - 10, 0);
         }
     }

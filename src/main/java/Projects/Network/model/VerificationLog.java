@@ -56,4 +56,22 @@ public class VerificationLog {
      */
     @Column("processing_time_ms")
     private Integer processingTimeMs;
+
+    @Column("document_number")
+    private String documentNumber;
+
+    @Column("holder_name")
+    private String holderName;
+
+    @Column("date_of_birth")
+    private String dateOfBirth;
+
+    @Column("issue_date")
+    private String issueDate;
+
+    @Column("expiry_date")
+    private String expiryDate;
+
+    @Column("additional_fields")
+    private String additionalFields;
 }
