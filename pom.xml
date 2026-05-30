@@ -29,10 +29,10 @@
     </parent>
 
     <!-- Project identification -->
-    <groupId>Projects</groupId>
-    <artifactId>Network</artifactId>
+    <groupId>com.projects</groupId>
+    <artifactId>network</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>Network</name>
+    <name>network</name>
     <description>Validation des pièces d'identités</description>
 
     <!-- Java version used by the project -->
