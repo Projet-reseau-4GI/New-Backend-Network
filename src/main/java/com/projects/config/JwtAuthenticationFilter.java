@@ -1,6 +1,6 @@
 package com.projects.config;
 
-import com.projects.service.JwtService;
+import com.projects.application.port.out.TokenServicePort;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +27,7 @@ import java.util.List;
 @Slf4j
 public class JwtAuthenticationFilter implements WebFilter {
 
-    private final JwtService jwtService;
+    private final TokenServicePort tokenService;
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, WebFilterChain chain) {
@@ -38,17 +38,15 @@ public class JwtAuthenticationFilter implements WebFilter {
         }
 
         String token = authHeader.substring(7);
-        Claims claims = jwtService.validateToken(token);
-
-        if (claims == null) {
+        boolean isValid = tokenService.isTokenValid(token);
+        if (!isValid) {
             log.warn("Invalid or expired JWT token received");
             exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
             return exchange.getResponse().setComplete();
         }
 
-        String email = claims.getSubject();
-        Object platformIdObj = claims.get("platformId");
-        Long platformId = platformIdObj instanceof Number ? ((Number) platformIdObj).longValue() : null;
+        String email = tokenService.extractEmail(token);
+        Long platformId = tokenService.extractId(token);
 
         UsernamePasswordAuthenticationToken authentication =
             new UsernamePasswordAuthenticationToken(

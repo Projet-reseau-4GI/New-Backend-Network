@@ -59,7 +59,7 @@ public class PlatformService {
     /**
      * Get all platforms with their API token usage stats.
      */
-    public Flux<com.projects.dto.PlatformTokenStatsDto> getPlatformTokenStats(String search) {
+    public Flux<com.projects.adapter.in.web.dto.PlatformTokenStatsDto> getPlatformTokenStats(String search) {
         String searchFilter = "";
         if (search != null && !search.trim().isEmpty()) {
             String safeSearch = search.replace("'", "''");
@@ -77,7 +77,7 @@ public class PlatformService {
                 " ORDER BY p.name ASC";
 
         return db.sql(sql)
-                .map((row, md) -> com.projects.dto.PlatformTokenStatsDto.builder()
+                .map((row, md) -> com.projects.adapter.in.web.dto.PlatformTokenStatsDto.builder()
                         .platformId(row.get("id", Long.class))
                         .platformName(row.get("name", String.class))
                         .email(row.get("email", String.class))

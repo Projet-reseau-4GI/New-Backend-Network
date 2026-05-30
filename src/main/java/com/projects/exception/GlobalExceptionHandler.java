@@ -1,6 +1,6 @@
 package com.projects.exception;
 
-import com.projects.dto.ErrorResponse;
+import com.projects.adapter.in.web.dto.ErrorResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
