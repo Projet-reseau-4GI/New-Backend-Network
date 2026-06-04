@@ -32,5 +32,7 @@ build/
 ### VS Code ###
 .vscode/
 
-KSM_Kernel_Layer/
+KSM_Kernel_Layer-main/
 database_schema.sql
+
+RT-comops-file-core/
