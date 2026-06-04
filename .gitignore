@@ -36,3 +36,9 @@ KSM_Kernel_Layer-main/
 database_schema.sql
 
 RT-comops-file-core/
+
+### Secrets — NE JAMAIS committer ces fichiers ###
+src/main/resources/application.properties
+.env
+.env.local
+*.env

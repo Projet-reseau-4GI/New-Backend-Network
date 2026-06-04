@@ -1,0 +1,76 @@
+# =========================================================
+# FICHIER EXEMPLE — Copiez ce fichier en application.properties
+# et remplissez vos vraies valeurs localement.
+# NE JAMAIS committer application.properties avec des secrets réels.
+# =========================================================
+
+# KERNEL CORE CONNECTION
+kernel.base-url=${KERNEL_BASE_URL:http://localhost:8082}
+kernel.client-id=${KERNEL_CLIENT_ID:verifid-backend}
+kernel.api-key=${KERNEL_API_KEY:your-secret-here}
+kernel.service-code=KYC
+kernel.jwks-uri=${KERNEL_BASE_URL:http://localhost:8082}/.well-known/jwks.json
+kernel.jwt.rs256-enabled=${KERNEL_JWT_RS256_ENABLED:false}
+
+# PostgreSQL (R2DBC)
+spring.r2dbc.url=r2dbc:postgresql://HOST:5432/postgres?sslMode=require
+spring.r2dbc.username=your-db-username
+spring.r2dbc.password=${DB_PASSWORD}
+spring.sql.init.mode=always
+
+# Brevo (Email)
+brevo.api.key=${BREVO_API_KEY}
+brevo.sender.email=your-email@example.com
+brevo.sender.name=VerifID
+
+# App
+app.name=VerifID
+app.support.email=support@network.com
+app.password-reset.code-length=6
+app.password-reset.expiry-minutes=15
+app.password-reset.max-attempts=3
+app.email-verification.code-length=6
+app.email-verification.expiry-minutes=15
+
+# AES-256 Encryption Key
+encryption.secret-key=${ENCRYPTION_SECRET_KEY}
+
+# Supabase
+supabase.url=https://your-project.supabase.co
+supabase.service-role-key=${SUPABASE_SERVICE_ROLE_KEY}
+supabase.bucket=Documents
+
+# Parse API
+parsing.api.url=https://your-parse-api-url
+parsing.api.token=${PARSING_API_TOKEN}
+
+# Gemini AI
+gemini.api.key=${GEMINI_API_KEY}
+gemini.model=gemini-flash-latest
+gemini.api.url=https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}
+
+# Logging
+logging.level.org.springframework.web=INFO
+logging.level.com.projects=DEBUG
+
+# Reactor Netty
+reactor.netty.pool.maxConnections=100
+reactor.netty.pool.maxIdleTime=20s
+
+# Swagger
+springdoc.api-docs.path=/api-docs
+springdoc.swagger-ui.path=/swagger-ui.html
+springdoc.swagger-ui.enabled=true
+springdoc.packages-to-scan=com.projects.adapter.in.web
+
+# Server
+server.url=${RENDER_EXTERNAL_URL:http://localhost:8080}
+
+# Actuator
+management.endpoints.web.exposure.include=health,info
+management.endpoint.health.show-details=always
+
+# Multipart
+spring.webflux.multipart.max-file-size=10MB
+spring.webflux.multipart.max-request-size=10MB
+spring.codec.max-in-memory-size=10MB
